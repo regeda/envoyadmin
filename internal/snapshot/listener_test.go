@@ -15,6 +15,15 @@ import (
 	"github.com/regeda/txenvoy/internal/demo"
 )
 
+func mustRead(t *testing.T, path string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("committed capture missing: %v", err)
+	}
+	return b
+}
+
 func raw(s string) json.RawMessage { return json.RawMessage(s) }
 
 func st(version, listener string) *admin.ListenerState {
@@ -237,12 +246,12 @@ func TestEmptyListenerDumps(t *testing.T) {
 func TestRealRejectedUpdateThroughFetch(t *testing.T) {
 	dyn, err := os.ReadFile("../admin/testdata/real-listeners-error.json")
 	if err != nil {
-		t.Skip("no real error capture committed")
+		t.Fatalf("committed capture missing: %v", err)
 	}
-	clusters, _ := os.ReadFile("../admin/testdata/real-clusters.json")
-	cdyn, _ := os.ReadFile("../admin/testdata/real-config-dynamic.json")
-	cstat, _ := os.ReadFile("../admin/testdata/real-config-static.json")
-	info, _ := os.ReadFile("../admin/testdata/real-server-info.json")
+	clusters := mustRead(t, "../admin/testdata/real-clusters.json")
+	cdyn := mustRead(t, "../admin/testdata/real-config-dynamic.json")
+	cstat := mustRead(t, "../admin/testdata/real-config-static.json")
+	info := mustRead(t, "../admin/testdata/real-server-info.json")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/clusters":
@@ -279,12 +288,12 @@ func TestRealListenerCapturesThroughFetch(t *testing.T) {
 	dyn, err1 := os.ReadFile("../admin/testdata/real-listeners-dynamic.json")
 	stat, err2 := os.ReadFile("../admin/testdata/real-listeners-static.json")
 	if err1 != nil || err2 != nil {
-		t.Skip("no real listener captures committed")
+		t.Fatalf("committed captures missing: %v %v", err1, err2)
 	}
-	clusters, _ := os.ReadFile("../admin/testdata/real-clusters.json")
-	cdyn, _ := os.ReadFile("../admin/testdata/real-config-dynamic.json")
-	cstat, _ := os.ReadFile("../admin/testdata/real-config-static.json")
-	info, _ := os.ReadFile("../admin/testdata/real-server-info.json")
+	clusters := mustRead(t, "../admin/testdata/real-clusters.json")
+	cdyn := mustRead(t, "../admin/testdata/real-config-dynamic.json")
+	cstat := mustRead(t, "../admin/testdata/real-config-static.json")
+	info := mustRead(t, "../admin/testdata/real-server-info.json")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/clusters":
@@ -346,5 +355,18 @@ func TestManyUnnamedChains(t *testing.T) {
 	_, chains := parseListener(raw(`{"filter_chains":[{},{},{},{}]}`))
 	if len(chains) != 4 || chains[3].Label != "#4" {
 		t.Fatalf("%+v", chains)
+	}
+}
+
+func TestListenerPortTolerance(t *testing.T) {
+	cases := map[string]string{
+		`{"address":{"socket_address":{"address":"1.2.3.4","port_value":"abc"}}}`:  "1.2.3.4:0",
+		`{"address":{"socket_address":{"address":"1.2.3.4","port_value":"8080"}}}`: "1.2.3.4:8080",
+		`{"address":{"socket_address":{"address":"1.2.3.4","port_value":null}}}`:   "1.2.3.4:0",
+	}
+	for in, want := range cases {
+		if got, _ := parseListener(raw(in)); got != want {
+			t.Errorf("%s -> %q, want %q", in, got, want)
+		}
 	}
 }

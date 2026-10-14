@@ -135,8 +135,8 @@ func parseListener(raw json.RawMessage) (address string, chains []FilterChain) {
 func parseAddress(raw json.RawMessage) string {
 	var a struct {
 		Socket struct {
-			Address string      `json:"address"`
-			Port    json.Number `json:"port_value"`
+			Address string          `json:"address"`
+			Port    json.RawMessage `json:"port_value"`
 		} `json:"socket_address"`
 		Pipe struct {
 			Path string `json:"path"`
@@ -148,7 +148,7 @@ func parseAddress(raw json.RawMessage) string {
 	_ = json.Unmarshal(raw, &a)
 	switch {
 	case a.Socket.Address != "":
-		port := a.Socket.Port.String()
+		port := numStr(a.Socket.Port)
 		if port == "" {
 			port = "0" // proto3 default, omitted by Envoy
 		}

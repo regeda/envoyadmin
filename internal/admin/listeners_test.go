@@ -191,7 +191,7 @@ func TestNamelessErrorOnlyListenerIsNamedFromTheFailedConfiguration(t *testing.T
 func TestRealRejectedUpdateCapture(t *testing.T) {
 	dyn, err := os.ReadFile("testdata/real-listeners-error.json")
 	if err != nil {
-		t.Skip("no real error capture committed")
+		t.Fatalf("committed capture missing: %v", err)
 	}
 	got, derr := serveListeners(t, string(dyn), `{}`).ListenerConfigs(context.Background())
 	if derr != nil {
@@ -223,7 +223,7 @@ func TestListenerConfigsFromRealCapture(t *testing.T) {
 	dyn, err1 := os.ReadFile("testdata/real-listeners-dynamic.json")
 	stat, err2 := os.ReadFile("testdata/real-listeners-static.json")
 	if err1 != nil || err2 != nil {
-		t.Skip("no real listener captures committed (see testdata/README.md)")
+		t.Fatalf("committed captures missing: %v %v", err1, err2)
 	}
 	c := serveListeners(t, string(dyn), string(stat))
 	got, err := c.ListenerConfigs(context.Background())
