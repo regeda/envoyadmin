@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/regeda/txenvoy/internal/snapshot"
 )
@@ -135,5 +136,120 @@ func TestEndpointsFlagOverflowShowsCount(t *testing.T) {
 	out := renderEndpoints(c, 100, 4, 0)
 	if !strings.Contains(strings.Split(out, "\n")[2], "+") {
 		t.Fatalf("expected +N overflow marker: %q", out)
+	}
+}
+
+func TestFlagCellExactWidth(t *testing.T) {
+	lists := [][]string{
+		nil,
+		{"FAILED_ACTIVE_HC"},
+		{"FAILED_ACTIVE_HC", "EDS_STATUS_UNHEALTHY"},
+		{"FAILED_ACTIVE_HC", "FAILED_OUTLIER_CHECK", "EDS_STATUS_UNHEALTHY", "ACTIVE_HC_TIMEOUT"},
+		{"A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L"},
+	}
+	for _, fl := range lists {
+		for w := 1; w <= 90; w++ {
+			if got := lipgloss.Width(flagCell(fl, w)); got != w {
+				t.Fatalf("flags=%v width=%d: cell width %d", fl, w, got)
+			}
+		}
+	}
+}
+
+func TestFlagCellOverflowMarker(t *testing.T) {
+	fl := []string{"FAILED_ACTIVE_HC", "FAILED_OUTLIER_CHECK", "EDS_STATUS_UNHEALTHY"}
+	// 16 + 1 + 20 = 37 fits two flags only with the marker: "+1" needs 3 more.
+	got := ansiStrip(flagCell(fl, 40))
+	if strings.TrimRight(got, " ") != "FAILED_ACTIVE_HC FAILED_OUTLIER_CHECK +1" {
+		t.Fatalf("got %q", got)
+	}
+	got = ansiStrip(flagCell(fl, 38))
+	if strings.TrimRight(got, " ") != "FAILED_ACTIVE_HC +2" {
+		t.Fatalf("got %q", got)
+	}
+	// two-digit count
+	many := make([]string, 12)
+	for i := range many {
+		many[i] = "FLAG_NUMBER_" + fmt.Sprint(i)
+	}
+	got = strings.TrimRight(ansiStrip(flagCell(many, 20)), " ")
+	if !strings.HasSuffix(got, "+11") || lipgloss.Width(got) > 20 {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestFlagCellTruncatesFirstFlag(t *testing.T) {
+	fl := []string{"FAILED_ACTIVE_HC", "EDS_STATUS_UNHEALTHY"}
+	got := strings.TrimRight(ansiStrip(flagCell(fl, 12)), " ")
+	if got != "FAILED_AC +1" {
+		t.Fatalf("got %q", got)
+	}
+	got = strings.TrimRight(ansiStrip(flagCell(fl[:1], 12)), " ")
+	if got != "FAILED_ACTIV" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func ansiStrip(s string) string { return ansi.Strip(s) }
+
+func typicalCluster() snapshot.Cluster {
+	return snapshot.Cluster{Name: "t", Hosts: []snapshot.Host{
+		{Address: "10.0.1.5:8080", Zone: "eu-west-1a", Weight: 1, RqActive: 3, RqError: 4, CxActive: 5,
+			Flags: []string{"FAILED_ACTIVE_HC", "EDS_STATUS_UNHEALTHY", "ACTIVE_HC_TIMEOUT"}},
+		{Address: "10.0.1.6:8080", Zone: "eu-west-1b", Weight: 1, RqActive: 1, CxActive: 2},
+		{Address: "10.0.1.7:8080", Zone: "eu-west-1c", Weight: 1, Flags: []string{"FAILED_OUTLIER_CHECK", "DEGRADED_ACTIVE_HC"}},
+	}}
+}
+
+func TestEndpointsLayoutFitsWithoutClip(t *testing.T) {
+	cols := []string{"ADDRESS", "FLAGS", "WEIGHT", "ZONE", "RQ_ACTIVE", "RQ_ERR", "CX_ACTIVE"}
+	for _, w := range []int{77, 100} {
+		lines := endpointLines(typicalCluster(), w, 8, 0)
+		for _, col := range cols {
+			if !strings.Contains(lines[1], col) {
+				t.Fatalf("w=%d header missing %s: %q", w, col, lines[1])
+			}
+		}
+		hw := lipgloss.Width(lines[1])
+		if hw > w {
+			t.Fatalf("w=%d unclipped header width %d", w, hw)
+		}
+		for _, l := range lines[2:5] {
+			if lipgloss.Width(l) != hw {
+				t.Fatalf("w=%d row width %d != header %d: %q", w, lipgloss.Width(l), hw, l)
+			}
+		}
+	}
+}
+
+func TestEndpointsDropsZoneWhenNarrow(t *testing.T) {
+	lines := endpointLines(typicalCluster(), 60, 8, 0)
+	if strings.Contains(lines[1], "ZONE") || strings.Contains(lines[2], "eu-west") {
+		t.Fatalf("zone should be dropped: %q", lines[1])
+	}
+	for _, col := range []string{"ADDRESS", "FLAGS", "WEIGHT", "RQ_ACTIVE", "RQ_ERR", "CX_ACTIVE"} {
+		if !strings.Contains(lines[1], col) {
+			t.Fatalf("header missing %s: %q", col, lines[1])
+		}
+	}
+	hw := lipgloss.Width(lines[1])
+	if hw > 60 {
+		t.Fatalf("header width %d", hw)
+	}
+	for _, l := range lines[2:5] {
+		if lipgloss.Width(l) != hw {
+			t.Fatalf("row width %d != %d: %q", lipgloss.Width(l), hw, l)
+		}
+	}
+}
+
+func TestEndpointsUnixAddressWholeAtPaneWidth(t *testing.T) {
+	c := snapshot.Cluster{Name: "x", Hosts: []snapshot.Host{{Address: "unix:/var/run/agent.sock", Zone: "z"}}}
+	lines := endpointLines(c, 77, 4, 0)
+	if !strings.Contains(lines[2], "unix:/var/run/agent.sock") {
+		t.Fatalf("%q", lines[2])
+	}
+	if lipgloss.Width(lines[2]) > 77 || !strings.Contains(lines[1], "CX_ACTIVE") {
+		t.Fatalf("width %d header %q", lipgloss.Width(lines[2]), lines[1])
 	}
 }
