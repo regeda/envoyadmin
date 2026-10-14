@@ -69,10 +69,11 @@ func (d *detailPane) SetCluster(c snapshot.Cluster, ok bool) {
 
 func (d *detailPane) syncConfig() {
 	c := d.cluster
-	if d.cfgName != c.Name || d.cfgYAML != c.Config.YAML {
+	text, _ := c.Config.Render()
+	if d.cfgName != c.Name || d.cfgYAML != text {
 		nameChanged := d.cfgName != c.Name
-		d.cfgOut = highlightYAML(c.Config.YAML, d.color)
-		d.cfgName, d.cfgYAML = c.Name, c.Config.YAML
+		d.cfgOut = highlightYAML(text, d.color)
+		d.cfgName, d.cfgYAML = c.Name, text
 		d.highlights++
 		d.applyContent()
 		if nameChanged {
@@ -112,8 +113,8 @@ func clipLines(s string, w int) string {
 // clipped to the current width.
 func (d *detailPane) applyContent() {
 	w := max(d.width, 1)
-	if d.cluster.Config.Err != "" {
-		d.vp.SetContent(clipLines(dimStyle.Render(d.cluster.Config.Err), w))
+	if _, problem := d.cluster.Config.Render(); problem != "" {
+		d.vp.SetContent(clipLines(dimStyle.Render(problem), w))
 		return
 	}
 	d.vp.SetContent(clipLines(numberLines(d.cfgOut), w))

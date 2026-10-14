@@ -32,6 +32,19 @@ func fetchFrom(t *testing.T, sc demo.Scenario) Snapshot {
 	return snap
 }
 
+func demoClient(t *testing.T) admin.Client {
+	t.Helper()
+	srv := httptest.NewServer(demo.NewServer(demo.Degraded()))
+	t.Cleanup(srv.Close)
+	c, err := admin.NewHTTP(srv.URL, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+func fetchFromDemo(t *testing.T) Snapshot { return fetchFrom(t, demo.Degraded()) }
+
 func byName(s Snapshot) map[string]Cluster {
 	m := map[string]Cluster{}
 	for _, c := range s.Clusters {
@@ -63,7 +76,8 @@ func TestFetchDegraded(t *testing.T) {
 	if api.Type != "EDS" || api.Health() != Degraded || api.HealthyCount() != 2 || len(api.Hosts) != 3 {
 		t.Fatalf("api: %+v health=%v", api, api.Health())
 	}
-	if !strings.Contains(api.Config.YAML, "name: api-gateway") || api.Config.VersionInfo != "42" || api.Config.LastUpdated.IsZero() {
+	apiText, _ := api.Config.Render()
+	if !strings.Contains(apiText, "name: api-gateway") || api.Config.VersionInfo != "42" || api.Config.LastUpdated.IsZero() {
 		t.Fatalf("api config: %+v", api.Config)
 	}
 	var bad Host
@@ -131,7 +145,7 @@ func TestPartialFailures(t *testing.T) {
 		t.Fatalf("config failure must not fail the snapshot: %v", err)
 	}
 	for _, c := range s.Clusters {
-		if !strings.HasPrefix(c.Config.Err, "config unavailable") || c.Config.YAML != "" {
+		if text, _ := c.Config.Render(); !strings.HasPrefix(c.Config.Err, "config unavailable") || text != "" {
 			t.Fatalf("%s: %+v", c.Name, c.Config)
 		}
 	}
@@ -228,9 +242,10 @@ func checkRealShapeJoin(t *testing.T, files map[string]string) {
 		if !ok {
 			t.Fatalf("%s missing from %v", name, m)
 		}
-		if c.Type == "?" || c.Type != want.typ || c.Config.Err != "" || c.Config.YAML == "" ||
+		text, problem := c.Config.Render()
+		if c.Type == "?" || c.Type != want.typ || problem != "" || text == "" ||
 			c.Config.VersionInfo != want.version || c.Config.Static != want.static ||
-			!strings.Contains(c.Config.YAML, "name: "+name) || c.Config.LastUpdated.IsZero() {
+			!strings.Contains(text, "name: "+name) || c.Config.LastUpdated.IsZero() {
 			t.Fatalf("%s: type=%q config=%+v", name, c.Type, c.Config)
 		}
 	}
@@ -297,10 +312,11 @@ func TestYAMLRenderErrorIsReportedPerCluster(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := byName(snap)
-	if b := m["bad"]; !strings.HasPrefix(b.Config.Err, "config unavailable: render yaml:") || b.Config.YAML != "" {
-		t.Fatalf("bad: %+v", b.Config)
+	if text, problem := m["bad"].Config.Render(); !strings.HasPrefix(problem, "config unavailable: render yaml:") || text != "" {
+		t.Fatalf("bad: %+v", m["bad"].Config)
 	}
-	if f := m["fine"]; f.Config.Err != "" || !strings.Contains(f.Config.YAML, "name: fine") {
+	if text, problem := m["fine"].Config.Render(); problem != "" || !strings.Contains(text, "name: fine") {
+		f := m["fine"]
 		t.Fatalf("fine: %+v", f.Config)
 	}
 }

@@ -8,10 +8,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	adminv3 "github.com/envoyproxy/go-control-plane/envoy/admin/v3"
-	"sigs.k8s.io/yaml"
 
 	"github.com/regeda/txenvoy/internal/admin"
 )
@@ -52,13 +52,6 @@ func (h Host) Ejected() bool {
 		}
 	}
 	return false
-}
-
-type ConfigInfo struct {
-	YAML, VersionInfo string
-	LastUpdated       time.Time
-	Static            bool
-	Err               string
 }
 
 type Cluster struct {
@@ -125,8 +118,17 @@ func Fetch(ctx context.Context, c admin.Client) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
-	cfgs, cfgErr := c.ClusterConfigs(ctx)
-	info, _ := c.ServerInfo(ctx)
+
+	var (
+		wg     sync.WaitGroup
+		cfgs   []admin.ClusterConfig
+		cfgErr error
+		info   *adminv3.ServerInfo
+	)
+	wg.Add(2)
+	go func() { defer wg.Done(); cfgs, cfgErr = c.ClusterConfigs(ctx) }()
+	go func() { defer wg.Done(); info, _ = c.ServerInfo(ctx) }()
+	wg.Wait()
 
 	cfgByName := make(map[string]admin.ClusterConfig, len(cfgs))
 	for _, cc := range cfgs {
@@ -146,14 +148,10 @@ func Fetch(ctx context.Context, c admin.Client) (Snapshot, error) {
 			cluster.Config.Err = "config unavailable: not present in config_dump"
 		default:
 			cluster.Type = cc.Type
+			cluster.Config = newConfigInfo(cc.JSON)
 			cluster.Config.VersionInfo = cc.VersionInfo
 			cluster.Config.LastUpdated = cc.LastUpdated
 			cluster.Config.Static = cc.Static
-			if y, yerr := yaml.JSONToYAML(cc.JSON); yerr != nil {
-				cluster.Config.Err = "config unavailable: render yaml: " + yerr.Error()
-			} else {
-				cluster.Config.YAML = string(y)
-			}
 		}
 		out.Clusters = append(out.Clusters, cluster)
 	}
