@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -54,18 +55,24 @@ func TestEndToEndFailureAndRecovery(t *testing.T) {
 	waitFor(t, tm, "● connected", "api-gateway")
 
 	fake.Inject(demo.Fault{Status: 503})
-	waitFor(t, tm, "✗ disconnected", "503")
+	// Wait for the specific error text, not a bare "503": the admin URL shown
+	// in the header carries a random port that may itself contain 503.
+	waitFor(t, tm, "✗ disconnected", "503 Service Unavailable")
 
 	fake.Inject(demo.Fault{})
-	// A frame with "● connected" that no longer mentions the error. Output is
-	// consumed as read, so "503" can only show up again if the banner (or its
-	// text) was still being drawn; the first "● connected" frame after
-	// recovery is the one that must be clear of it. Fails if the banner is
-	// never cleared (checked by mutation: not clearing m.err).
-	teatest.WaitFor(t, tm.Output(), func(b []byte) bool {
-		return bytes.Contains(b, []byte("● connected")) && !bytes.Contains(b, []byte("503"))
-	}, teatest.WithDuration(5*time.Second), teatest.WithCheckInterval(20*time.Millisecond))
+	// The header reads "✗ disconnected" until a fetch succeeds, so the next
+	// "● connected" can only come from the recovery.
+	waitFor(t, tm, "● connected")
 
 	tm.Send(key("q"))
 	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+
+	// Output is a diff stream, so a banner that was never cleared would leave
+	// no trace in the frames after recovery. Assert on the final view instead.
+	view := tm.FinalModel(t, teatest.WithFinalTimeout(2*time.Second)).View()
+	for _, stale := range []string{"Service Unavailable", "retrying every", "✗ disconnected"} {
+		if strings.Contains(view, stale) {
+			t.Fatalf("banner still shown after recovery (%q):\n%s", stale, view)
+		}
+	}
 }
