@@ -35,7 +35,8 @@ bin/txenvoy --admin http://localhost:15000
 | `PgUp/PgDn`, `g/G` | page, jump to top / bottom |
 | `Ctrl+N` / `Ctrl+P` | move while typing in the filter |
 | `/` | fuzzy filter (`Enter` keeps it, `Esc` clears it) |
-| `Tab` | switch focus between list and detail |
+| `Tab` | switch focus between list and detail (the focused pane is marked: `▌` on the detail tab line, `focus: detail` in the status bar, and a `›` list cursor) |
+| `Esc` / `Shift+Tab` | back to the list (in the list, `Esc` clears the filter) |
 | `c` / `e` | Config / Endpoints tab |
 | `r` | refresh now |
 | `x` | dismiss the error banner |

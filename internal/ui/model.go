@@ -167,6 +167,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// setFocus moves the keyboard focus and tells both panes so they can show it.
+func (m *Model) setFocus(f focus) {
+	m.focus = f
+	m.list.SetFocused(f == focusList)
+	m.detail.SetFocused(f == focusDetail)
+}
+
 func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if k.String() == "ctrl+c" {
 		return m, tea.Quit
@@ -192,17 +199,26 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.help = !m.help
 	case "tab":
 		if m.focus == focusList {
-			m.focus = focusDetail
+			m.setFocus(focusDetail)
 		} else {
-			m.focus = focusList
+			m.setFocus(focusList)
 		}
+	case "shift+tab":
+		m.setFocus(focusList)
 	case "c":
 		m.detail.SetTab(tabConfig)
 	case "e":
 		m.detail.SetTab(tabEndpoints)
+	case "esc":
+		if m.focus == focusDetail {
+			m.setFocus(focusList)
+		} else {
+			m.list.HandleKey(k) // clears an active filter
+			m.syncDetail()
+		}
 	default:
 		if k.String() == "/" {
-			m.focus = focusList
+			m.setFocus(focusList)
 		}
 		if m.focus == focusList {
 			m.list.HandleKey(k)
@@ -254,8 +270,12 @@ func (m Model) statusLine() string {
 		left += " ↻"
 	}
 	right := "? help · q quit · / filter · c config · e endpoints · r refresh "
+	if m.focus == focusDetail {
+		left += " · focus: detail"
+		right = "tab/esc back to list · ↑↓ scroll · c config · e endpoints · q quit "
+	}
 	if m.help {
-		right = "↑↓/jk move · / filter · tab focus · c config · e endpoints · r refresh · x dismiss · q quit "
+		right = "↑↓/jk move · / filter · tab/esc switch focus · c config · e endpoints · r refresh · x dismiss · q quit "
 	}
 	return renderStatus(m.width, left, right)
 }

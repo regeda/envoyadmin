@@ -109,3 +109,8 @@ func TestGoldenErrorTruncated(t *testing.T) {
 	m := loaded(t, demo.Degraded(), 80, 30)
 	golden(t, send(m, snapshotMsg{err: errors.New(strings.Repeat("decode failure in a very long message ", 20))}))
 }
+
+func TestGoldenDetailFocus(t *testing.T) {
+	m := loaded(t, demo.Degraded(), 120, 30)
+	golden(t, send(m, key("tab")))
+}
