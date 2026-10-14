@@ -130,3 +130,38 @@ func TestFocusIndicatorKeepsFrameExact(t *testing.T) {
 	}
 	_ = snapshot.Healthy
 }
+
+// The reason Tab exists: with the details focused the arrow keys scroll the
+// Config YAML, while the cluster selection stays put.
+func TestTabThenArrowsScrollTheConfig(t *testing.T) {
+	c := cl("alpha", 1, 2)
+	c.Config.YAML = strings.Repeat("key: value\n", 80) + "last: line\n"
+	m := sized(New(testOpts(nil)), 120, 30)
+	m = send(m, snapshotMsg{snap: snap(c, cl("beta", 1, 1))})
+	m = send(m, key("c"))
+	if strings.Contains(m.View(), "last: line") {
+		t.Fatal("precondition: the end of the YAML is off-screen")
+	}
+
+	m = send(m, key("down")) // list still focused: moves the selection
+	if selectedName(m) != "beta" {
+		t.Fatalf("before tab, down selects the next cluster, got %q", selectedName(m))
+	}
+	m = send(m, key("up"))
+
+	m = send(m, key("tab"))
+	for i := 0; i < 100; i++ {
+		m = send(m, key("down"))
+	}
+	if selectedName(m) != "alpha" {
+		t.Fatalf("after tab the arrows must not move the selection, got %q", selectedName(m))
+	}
+	if !strings.Contains(m.View(), "last: line") {
+		t.Fatalf("after tab the arrows must scroll the config to its end:\n%s", m.View())
+	}
+}
+
+func selectedName(m Model) string {
+	c, _ := m.list.Selected()
+	return c.Name
+}
