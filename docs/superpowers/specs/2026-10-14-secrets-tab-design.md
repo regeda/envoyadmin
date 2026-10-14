@@ -102,8 +102,12 @@ certificate details are unavailable.
   listeners, and the not-loaded marker.
 - Golden UI tests for the Secrets list, the Secrets Overview and the new
   "Secrets" rows.
-- A test that renders a secret fixture containing a sentinel private key and
-  asserts that the sentinel appears nowhere in the output.
+- No secret body can reach the UI: a decoder-level sentinel test (a sentinel
+  private key in the input never appears in the decoded `admin.SecretConfig`),
+  a reflection guard that `snapshot.Secret`/`CertInfo` and
+  `admin.SecretConfig`/`CertFacts` have no field that could carry a body, and a
+  rendered-Overview check that the output contains neither `BEGIN` nor
+  `PRIVATE KEY`.
 
 ### Open item (settled, see the amendment below)
 

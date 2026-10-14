@@ -18,8 +18,13 @@ const (
 	SecretStatic
 )
 
+var secretStatusNames = [...]string{"active", "warming", "static"}
+
 func (s SecretStatus) String() string {
-	return [...]string{"active", "warming", "static"}[s]
+	if s < 0 || int(s) >= len(secretStatusNames) {
+		return "unknown"
+	}
+	return secretStatusNames[s]
 }
 
 // CertInfo is a certificate's facts. There is no field for its body.

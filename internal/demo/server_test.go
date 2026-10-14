@@ -396,6 +396,46 @@ func TestUpdateDeepCopiesListeners(t *testing.T) {
 	}
 }
 
+func TestUpdateDeepCopiesSecrets(t *testing.T) {
+	sc := Degraded()
+	s := NewServer(sc)
+	ci, li := -1, -1
+	for i, c := range sc.Clusters {
+		if ci < 0 && len(c.Secrets) > 0 {
+			ci = i
+		}
+	}
+	for i, l := range sc.Listeners {
+		if li < 0 && len(l.Secrets) > 0 {
+			li = i
+		}
+	}
+	if ci < 0 || li < 0 {
+		t.Fatal("fixture: expected a cluster and a listener that reference secrets")
+	}
+	origSecret := sc.Secrets[0]
+	origCert := *sc.Secrets[0].Cert
+	origSAN := sc.Secrets[0].Cert.SANs[0]
+	origCluster := sc.Clusters[ci].Secrets[0]
+	origListener := sc.Listeners[li].Secrets[0]
+
+	s.Update(func(x *Scenario) {
+		x.Secrets[0].Name = "mutated"
+		x.Secrets[0].Cert.Serial = 99
+		x.Secrets[0].Cert.DaysLeft = 1
+		x.Secrets[0].Cert.SANs[0] = "mutated"
+		x.Clusters[ci].Secrets[0] = "mutated"
+		x.Listeners[li].Secrets[0] = "mutated"
+	})
+
+	if sc.Secrets[0].Name != origSecret.Name ||
+		sc.Secrets[0].Cert.Serial != origCert.Serial || sc.Secrets[0].Cert.DaysLeft != origCert.DaysLeft ||
+		sc.Secrets[0].Cert.SANs[0] != origSAN || sc.Clusters[ci].Secrets[0] != origCluster ||
+		sc.Listeners[li].Secrets[0] != origListener {
+		t.Fatal("Update must not mutate the secrets of the scenario passed to NewServer")
+	}
+}
+
 func TestServerServesSecrets(t *testing.T) {
 	srv := httptest.NewServer(NewServer(Degraded()))
 	defer srv.Close()

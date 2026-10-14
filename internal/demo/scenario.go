@@ -523,5 +523,9 @@ func Big(n int) Scenario {
 		}
 		cs = append(cs, Cluster{Name: fmt.Sprintf("svc-%03d", i), Type: "EDS", Version: "7", Hosts: []Host{h1, h2}})
 	}
-	return base(cs...)
+	sc := base(cs...)
+	for i := range sc.Listeners {
+		sc.Listeners[i].Secrets = nil // Big serves no secrets for them to reference
+	}
+	return sc
 }

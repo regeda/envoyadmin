@@ -24,6 +24,7 @@ resources:
         3XskosgZfy4VnsNzfi3w4qxUCfL+UgTrdtK1rZNvzOCKbN5UliJD1SnT6mrqtNRV
         irYhcFU4WN704FnCRgsCFalJzAyFSguO/78NLJoH
         -----END CERTIFICATE-----
+    # throwaway key generated for this capture; never used anywhere else
     private_key:
       inline_string: |
         -----BEGIN PRIVATE KEY-----
