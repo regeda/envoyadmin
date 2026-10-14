@@ -114,6 +114,7 @@ func (it listenerItem) sticky(w int) []string {
 			}
 		}
 	}
+	lines = append(lines, secretUsesRow(l.Secrets)...)
 	return append(lines, "", boldStyle.Render("Filter chains ("+strconv.Itoa(len(l.Chains))+")"))
 }
 

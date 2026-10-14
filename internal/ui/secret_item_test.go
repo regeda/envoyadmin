@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -117,5 +118,93 @@ func TestSecretKeysAreUniqueForRotatingSecrets(t *testing.T) {
 	sel, ok := m.views[kindSecrets].list.Selected()
 	if !ok || sel.Key() != "server-cert|warming" {
 		t.Fatalf("selection after down = %v %v", sel, ok)
+	}
+}
+
+func TestSecretOverviewShowsFactsAndUsedBy(t *testing.T) {
+	s := sec("server-cert", "12", snapshot.SecretActive)
+	s.Cert = &snapshot.CertInfo{Serial: "0a1b", SANs: []string{"a.example.com", "b.example.com"}, NotAfter: fixedNow.Add(7 * 24 * time.Hour), DaysLeft: 7}
+	s.UsedBy = []snapshot.Ref{{Kind: "cluster", Name: "api"}, {Kind: "listener", Name: "0.0.0.0_8080"}}
+	out := ansiStrip(secItem0(s).Overview(80, 20, 0))
+	for _, want := range []string{
+		"State", "active", "Kind", "tls_certificate", "Version", "12", "Last updated", "2026-10-14 10:00:00Z",
+		"Serial", "0a1b", "SANs", "a.example.com, b.example.com", "Expires", "2026-10-21", "7 days",
+		"Used by (2)", "cluster api", "listener 0.0.0.0_8080",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q in:\n%s", want, out)
+		}
+	}
+	if lines := strings.Split(out, "\n"); len(lines) != 20 {
+		t.Fatalf("Overview must be exactly h lines, got %d", len(lines))
+	}
+}
+
+func TestSecretOverviewWithoutCertOrUsers(t *testing.T) {
+	out := ansiStrip(secItem0(sec("bare", "", snapshot.SecretStatic)).Overview(80, 12, 0))
+	if strings.Contains(out, "Serial") || !strings.Contains(out, "Used by (0)") || !strings.Contains(out, "not referenced") {
+		t.Fatalf("bare secret:\n%s", out)
+	}
+	if !strings.Contains(out, "static") {
+		t.Fatalf("static state:\n%s", out)
+	}
+}
+
+func TestSecretOverviewExpiredCert(t *testing.T) {
+	s := sec("old", "1", snapshot.SecretActive)
+	s.Cert = &snapshot.CertInfo{Serial: "02", NotAfter: fixedNow.Add(-time.Hour)}
+	if out := ansiStrip(secItem0(s).Overview(80, 12, 0)); !strings.Contains(out, "(expired)") {
+		t.Fatalf("expired cert:\n%s", out)
+	}
+}
+
+func TestSecretOverviewExpiresWithinTheDayReadsToday(t *testing.T) {
+	s := sec("soon", "1", snapshot.SecretActive)
+	s.Cert = &snapshot.CertInfo{Serial: "03", NotAfter: fixedNow.Add(3 * time.Hour), DaysLeft: 0}
+	out := ansiStrip(secItem0(s).Overview(80, 12, 0))
+	if !strings.Contains(out, "(today)") || strings.Contains(out, "0 days") || strings.Contains(out, "(expired)") {
+		t.Fatalf("expires today:\n%s", out)
+	}
+}
+
+func TestSecretOverviewUnknownExpiryIsDash(t *testing.T) {
+	s := sec("noexp", "1", snapshot.SecretActive)
+	s.Cert = &snapshot.CertInfo{Serial: "04"}
+	out := ansiStrip(secItem0(s).Overview(80, 12, 0))
+	if !strings.Contains(out, "Expires") || strings.Contains(out, "expired") || strings.Contains(out, "days") {
+		t.Fatalf("zero NotAfter:\n%s", out)
+	}
+}
+
+func TestSecretOverviewScrollsUsedBy(t *testing.T) {
+	s := sec("busy", "1", snapshot.SecretActive)
+	for i := 0; i < 30; i++ {
+		s.UsedBy = append(s.UsedBy, snapshot.Ref{Kind: "cluster", Name: fmt.Sprintf("c%02d", i)})
+	}
+	it := secItem0(s)
+	if it.OverviewMaxScroll(80, 12) == 0 {
+		t.Fatal("30 users in 12 rows must scroll")
+	}
+	last := ansiStrip(it.Overview(80, 12, it.OverviewMaxScroll(80, 12)))
+	if !strings.Contains(last, "c29") || strings.Contains(last, "c00") {
+		t.Fatalf("scrolled to the end:\n%s", last)
+	}
+}
+
+// Review focus: secret content must never be rendered. The snapshot types have
+// no field for it, so this guards the decode-to-render path end to end.
+func TestSecretContentNeverRendered(t *testing.T) {
+	s := sec("server-cert", "12", snapshot.SecretActive)
+	m := sized(New(testOpts(nil)), 120, 30)
+	m = send(m, snapshotMsg{snap: snapshot.Snapshot{FetchedAt: fixedNow, Secrets: []snapshot.Secret{s}}})
+	m = send(send(m, key("tab")), key("tab"))
+	for _, k := range []string{"o", "c"} {
+		if v := m.View(); strings.Contains(v, "SENTINEL-PRIVATE-KEY") || strings.Contains(v, "BEGIN") {
+			t.Fatalf("view leaked content:\n%s", v)
+		}
+		m = send(m, key(k))
+	}
+	if v := m.View(); !strings.Contains(v, "secret content is never displayed") {
+		t.Fatalf("Config tab note missing:\n%s", v)
 	}
 }

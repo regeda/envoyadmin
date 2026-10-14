@@ -676,3 +676,16 @@ func TestListenerOverviewFilterRowsShowNameThenType(t *testing.T) {
 		t.Fatalf("narrow pane:\n%s", narrow)
 	}
 }
+
+func TestListenerOverviewListsSecrets(t *testing.T) {
+	l := lst("api", "0.0.0.0:8080", snapshot.ListenerActive)
+	l.Secrets = []snapshot.SecretUse{{Name: "server-cert", Loaded: true}, {Name: "ghost", Loaded: false}}
+	out := ansiStrip(item0(l).Overview(100, 20, 0))
+	if !strings.Contains(out, "Secrets") || !strings.Contains(out, "server-cert") || !strings.Contains(out, "ghost (not loaded)") {
+		t.Fatalf("listener overview:\n%s", out)
+	}
+	none := ansiStrip(item0(lst("api", "0.0.0.0:8080", snapshot.ListenerActive)).Overview(100, 20, 0))
+	if strings.Contains(none, "Secrets") {
+		t.Fatalf("no row without secrets:\n%s", none)
+	}
+}

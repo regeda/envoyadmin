@@ -12,8 +12,14 @@ import (
 	"github.com/regeda/envoyadmin/internal/snapshot"
 )
 
-// endpointHeadRows are the rows above the host table: summary, version, header.
-const endpointHeadRows = 3
+// endpointHeadRows are the rows above the host table: summary, version, header,
+// plus a Secrets row when the cluster references any.
+func endpointHeadRows(c snapshot.Cluster) int {
+	if len(c.Secrets) > 0 {
+		return 4
+	}
+	return 3
+}
 
 const (
 	minAddrW      = 7 // header "ADDRESS"
@@ -41,7 +47,7 @@ func sortedHosts(hs []snapshot.Host) []snapshot.Host {
 }
 
 func maxEndpointScroll(c snapshot.Cluster, h int) int {
-	return max(len(c.Hosts)-max(h-endpointHeadRows, 0), 0)
+	return max(len(c.Hosts)-max(h-endpointHeadRows(c), 0), 0)
 }
 
 func flagStyle(f string) lipgloss.Style {
@@ -177,12 +183,14 @@ func endpointLines(c snapshot.Cluster, w, h, scroll int) []string {
 	summary := fmt.Sprintf("%d hosts · %d healthy · %d ejected", len(c.Hosts), c.HealthyCount(), c.EjectedCount())
 	header := dimStyle.Render(row("ADDRESS", pad(trunc("FLAGS", flagsW), flagsW), "WEIGHT", "ZONE", "RQ_ACTIVE", "RQ_ERR", "CX_ACTIVE"))
 
-	lines := []string{summary, prop("Version", orDash(c.Config.VersionInfo)), header}
+	lines := []string{summary, prop("Version", orDash(c.Config.VersionInfo))}
+	lines = append(lines, secretUsesRow(c.Secrets)...)
+	lines = append(lines, header)
 	if len(hosts) == 0 {
 		lines = append(lines, dimStyle.Render("no hosts"))
 	}
 	scroll = max(0, min(scroll, maxEndpointScroll(c, h)))
-	end := min(scroll+max(h-endpointHeadRows, 0), len(hosts))
+	end := min(scroll+max(h-endpointHeadRows(c), 0), len(hosts))
 	for _, hst := range hosts[min(scroll, len(hosts)):end] {
 		lines = append(lines, row(hst.Address, flagCell(hst.Flags, flagsW),
 			strconv.FormatUint(uint64(hst.Weight), 10), orDash(hst.Zone),

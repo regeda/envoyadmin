@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strconv"
 	"strings"
 	"time"
 
@@ -69,8 +70,106 @@ func (it secretItem) Row(ctx rowCtx) string {
 	return trunc(line, ctx.Width)
 }
 
-func (it secretItem) Overview(w, h, scroll int) string {
-	return strings.Repeat("\n", max(h-1, 0)) // filled in by the Overview task
+// secretUseLine is a secret a cluster or listener references; one Envoy has not
+// loaded carries a marker, since that is the out-of-sync case.
+func secretUseLine(u snapshot.SecretUse) string {
+	if u.Loaded {
+		return u.Name
+	}
+	return u.Name + " " + badStyle.Render("(not loaded)")
 }
 
-func (it secretItem) OverviewMaxScroll(w, h int) int { return 0 }
+// secretUsesRow is the "Secrets" property row shared by cluster and listener
+// overviews, or nil when nothing is referenced.
+func secretUsesRow(uses []snapshot.SecretUse) []string {
+	if len(uses) == 0 {
+		return nil
+	}
+	names := make([]string, len(uses))
+	for i, u := range uses {
+		names[i] = secretUseLine(u)
+	}
+	return []string{prop("Secrets", strings.Join(names, ", "))}
+}
+
+func (it secretItem) sticky() []string {
+	s := it.s
+	state := s.State.String()
+	_, stStyle := it.glyph()
+	updated := "-"
+	if !s.LastUpdated.IsZero() {
+		updated = s.LastUpdated.UTC().Format("2006-01-02 15:04:05Z")
+	}
+	lines := []string{
+		prop("State", stStyle.Render(state)),
+		prop("Kind", orDash(s.Kind)),
+		prop("Version", orDash(s.VersionInfo)),
+		prop("Last updated", updated),
+	}
+	if c := s.Cert; c != nil {
+		lines = append(lines, prop("Serial", orDash(c.Serial)))
+		if len(c.SANs) > 0 {
+			lines = append(lines, prop("SANs", strings.Join(c.SANs, ", ")))
+		}
+		exp := "-"
+		if !c.NotAfter.IsZero() {
+			exp = c.NotAfter.UTC().Format("2006-01-02")
+			switch {
+			case it.expired():
+				exp = badStyle.Render(exp + " (expired)")
+			case c.DaysLeft <= 0:
+				exp += " (today)"
+			default:
+				exp += " (" + plural(int(c.DaysLeft), "day") + ")"
+			}
+		}
+		lines = append(lines, prop("Expires", exp))
+	}
+	return append(lines, "", boldStyle.Render("Used by ("+strconv.Itoa(len(s.UsedBy))+")"))
+}
+
+func (it secretItem) usedByLines() []string {
+	if len(it.s.UsedBy) == 0 {
+		return []string{" " + dimStyle.Render("not referenced by any cluster or listener")}
+	}
+	out := make([]string, 0, len(it.s.UsedBy))
+	for _, r := range it.s.UsedBy {
+		out = append(out, " "+r.Kind+" "+r.Name)
+	}
+	return out
+}
+
+func (it secretItem) OverviewMaxScroll(_, h int) int {
+	rows := h - len(it.sticky())
+	if rows <= 0 {
+		return 0
+	}
+	return max(len(it.usedByLines())-rows, 0)
+}
+
+func (it secretItem) Overview(w, h, scroll int) string {
+	if h <= 0 {
+		return ""
+	}
+	if w <= 0 {
+		return strings.Repeat("\n", h-1)
+	}
+	sticky := it.sticky()
+	var lines []string
+	if h <= len(sticky) {
+		lines = sticky[:h]
+	} else {
+		lines = append(lines, sticky...)
+		users := it.usedByLines()
+		rows := h - len(sticky)
+		start := max(0, min(scroll, max(len(users)-rows, 0)))
+		lines = append(lines, users[start:min(start+rows, len(users))]...)
+	}
+	for len(lines) < h {
+		lines = append(lines, "")
+	}
+	for i, l := range lines {
+		lines[i] = truncEllipsis(l, w)
+	}
+	return strings.Join(lines, "\n")
+}
