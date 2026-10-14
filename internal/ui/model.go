@@ -40,6 +40,13 @@ const (
 	stateDisconnected
 )
 
+type focus int
+
+const (
+	focusList focus = iota
+	focusDetail
+)
+
 type snapshotMsg struct {
 	snap snapshot.Snapshot
 	err  error
@@ -58,6 +65,7 @@ type Model struct {
 	inflight  bool
 	state     connState
 
+	focus         focus
 	help          bool
 	width, height int
 	list          listPane
@@ -159,11 +167,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// setFocus moves the keyboard focus and tells both panes so they can show it.
+func (m *Model) setFocus(f focus) {
+	m.focus = f
+	m.list.SetFocused(f == focusList)
+	m.detail.SetFocused(f == focusDetail)
+}
+
 func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if k.String() == "ctrl+c" {
 		return m, tea.Quit
 	}
-	if m.list.filtering {
+	if m.focus == focusList && m.list.filtering {
 		m.list.HandleKey(k)
 		m.syncDetail()
 		return m, nil
@@ -182,15 +197,35 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "?":
 		m.help = !m.help
+	case "tab":
+		if m.focus == focusList {
+			m.setFocus(focusDetail)
+		} else {
+			m.setFocus(focusList)
+		}
+	case "shift+tab":
+		m.setFocus(focusList)
 	case "c":
 		m.detail.SetTab(tabConfig)
 	case "e":
 		m.detail.SetTab(tabEndpoints)
-	case "pgup", "pgdown":
-		m.detail.HandleKey(k) // the only keys that scroll the details
+	case "esc":
+		if m.focus == focusDetail {
+			m.setFocus(focusList)
+		} else {
+			m.list.HandleKey(k) // clears an active filter
+			m.syncDetail()
+		}
 	default:
-		m.list.HandleKey(k) // arrows, j/k, g/G, / and esc always drive the list
-		m.syncDetail()
+		if k.String() == "/" {
+			m.setFocus(focusList)
+		}
+		if m.focus == focusList {
+			m.list.HandleKey(k)
+			m.syncDetail()
+		} else {
+			m.detail.HandleKey(k)
+		}
 	}
 	return m, nil
 }
@@ -235,8 +270,12 @@ func (m Model) statusLine() string {
 		left += " ↻"
 	}
 	right := "? help · q quit · / filter · c config · e endpoints · r refresh "
+	if m.focus == focusDetail {
+		left += " · focus: detail"
+		right = "tab/esc back to list · ↑↓ scroll · c config · e endpoints · q quit "
+	}
 	if m.help {
-		right = "↑↓/jk select · PgUp/PgDn scroll details · / filter · c config · e endpoints · r refresh · x dismiss · q quit "
+		right = "↑↓/jk move · / filter · tab/esc switch focus · c config · e endpoints · r refresh · x dismiss · q quit "
 	}
 	return renderStatus(m.width, left, right)
 }

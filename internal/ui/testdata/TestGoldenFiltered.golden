@@ -2,7 +2,7 @@
  █  █ █ ██▄ █ ▀█ ▀▄▀ █▄█  █                                                                Envoy 1.31.0 · updated 2s ago
 
   Clusters (40) 
-/ svc-01                                  │svc-014  ·  Endpoints | Config                                               
+/ svc-01                                  │  svc-014  ·  Endpoints | Config                                             
 >● svc-014            EDS              1/2│2 hosts · 1 healthy · 0 ejected                                              
  ● svc-010            EDS              2/2│ADDRESS        FLAGS            WEIGHT ZONE   RQ_ACTIVE RQ_ERR CX_ACTIVE     
  ● svc-011            EDS              2/2│10.1.14.2:8080 FAILED_ACTIVE_HC 1      zone-b 1         0      1             

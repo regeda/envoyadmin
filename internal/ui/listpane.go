@@ -30,6 +30,7 @@ type listPane struct {
 	selected      string
 	query         string
 	filtering     bool
+	unfocused     bool // zero value = focused, so a standalone list behaves as before
 	waiting       bool
 	input         textinput.Model
 	width, height int
@@ -55,6 +56,10 @@ func (l *listPane) SetSize(w, h int) {
 }
 
 func (l *listPane) SetWaiting(v bool) { l.waiting = v }
+
+// SetFocused tells the pane whether it owns the keyboard; an unfocused pane
+// draws its cursor as › instead of >.
+func (l *listPane) SetFocused(f bool) { l.unfocused = !f }
 
 func (l *listPane) SetClusters(cs []snapshot.Cluster) {
 	l.all = cs
@@ -212,6 +217,9 @@ func (l listPane) row(i int) string {
 	prefix := " "
 	if i == l.cursor {
 		prefix = ">"
+		if l.unfocused {
+			prefix = "›"
+		}
 	}
 	count := fmt.Sprintf("%d/%d", c.HealthyCount(), len(c.Hosts))
 	countCell := strings.Repeat(" ", max(countW-lipgloss.Width(count), 0)) + count

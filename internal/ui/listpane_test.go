@@ -37,6 +37,8 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyUp}
 	case "tab":
 		return tea.KeyMsg{Type: tea.KeyTab}
+	case "shift+tab":
+		return tea.KeyMsg{Type: tea.KeyShiftTab}
 	}
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
 }
@@ -284,6 +286,3 @@ func TestListRowsFitNarrowPane(t *testing.T) {
 		}
 	}
 }
-
-func tea_pgdown() tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyPgDown} }
-func tea_pgup() tea.KeyMsg   { return tea.KeyMsg{Type: tea.KeyPgUp} }
