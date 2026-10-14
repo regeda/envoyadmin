@@ -5,6 +5,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
 )
 
 const (
@@ -44,9 +45,14 @@ type headerTab struct {
 
 func renderTabRow(width int, tabs []headerTab) string {
 	var parts []string
+	// Without colour (NO_COLOR, a pipe) reverse video and bold are gone, so the
+	// active tab is marked with brackets that replace its padding cells.
+	plain := lipgloss.ColorProfile() == termenv.Ascii
 	for _, t := range tabs {
 		label := " " + t.Label + " "
 		switch {
+		case t.Active && plain:
+			parts = append(parts, "["+t.Label+"]")
 		case t.Active:
 			parts = append(parts, lipgloss.NewStyle().Bold(true).Reverse(true).Render(label))
 		case t.Warn:

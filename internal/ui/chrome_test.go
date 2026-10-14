@@ -302,3 +302,28 @@ func TestActiveHeaderTabDiffersFromInactive(t *testing.T) {
 		t.Fatal("the active tab must be styled differently from an inactive one")
 	}
 }
+
+func TestActiveTabIsBracketedWithoutColour(t *testing.T) {
+	prev := lipgloss.ColorProfile()
+	t.Cleanup(func() { lipgloss.SetColorProfile(prev) })
+	tabs := []headerTab{{Label: "Clusters (6)", Active: true}, {Label: "Listeners (!)", Warn: true}, {Label: "Third"}}
+
+	lipgloss.SetColorProfile(termenv.Ascii)
+	got := renderTabRow(100, tabs)
+	if got != " [Clusters (6)]  Listeners (!)   Third " {
+		t.Fatalf("NO_COLOR: only the active tab is bracketed, cells unchanged: %q", got)
+	}
+	moved := renderTabRow(100, []headerTab{{Label: "Clusters (6)"}, {Label: "Listeners (!)", Warn: true, Active: true}, {Label: "Third"}})
+	if lipgloss.Width(moved) != lipgloss.Width(got) || strings.Count(moved, "[") != 1 {
+		t.Fatalf("brackets must not shift or add cells: %q vs %q", moved, got)
+	}
+
+	lipgloss.SetColorProfile(termenv.ANSI)
+	got = renderTabRow(100, tabs)
+	if strings.Contains(got, "[Clusters") || !strings.Contains(got, "\x1b[") {
+		t.Fatalf("with colour the active tab is styled, not bracketed: %q", got)
+	}
+	if lipgloss.Width(got) != lipgloss.Width(" [Clusters (6)]  Listeners (!)   Third ") {
+		t.Fatalf("width differs: %d", lipgloss.Width(got))
+	}
+}
