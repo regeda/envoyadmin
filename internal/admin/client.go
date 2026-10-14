@@ -20,6 +20,7 @@ const maxBody = 64 << 20
 type Client interface {
 	Clusters(ctx context.Context) (*adminv3.Clusters, error)
 	ClusterConfigs(ctx context.Context) ([]ClusterConfig, error)
+	ListenerConfigs(ctx context.Context) ([]ListenerConfig, error)
 	ServerInfo(ctx context.Context) (*adminv3.ServerInfo, error)
 }
 
@@ -108,6 +109,22 @@ func (h *HTTP) ClusterConfigs(ctx context.Context) ([]ClusterConfig, error) {
 			return nil, err
 		}
 		cfgs, err := decodeClusterConfigs(body, res == "static_clusters")
+		if err != nil {
+			return nil, fmt.Errorf("GET /config_dump: decode %s: %w", res, err)
+		}
+		all = append(all, cfgs...)
+	}
+	return all, nil
+}
+
+func (h *HTTP) ListenerConfigs(ctx context.Context) ([]ListenerConfig, error) {
+	var all []ListenerConfig
+	for _, res := range []string{"dynamic_listeners", "static_listeners"} {
+		body, err := h.get(ctx, "/config_dump", url.Values{"resource": {res}})
+		if err != nil {
+			return nil, err
+		}
+		cfgs, err := decodeListenerConfigs(body, res == "static_listeners")
 		if err != nil {
 			return nil, fmt.Errorf("GET /config_dump: decode %s: %w", res, err)
 		}
