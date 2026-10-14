@@ -5,16 +5,16 @@
 / to filter                         │  bad-update  ·  Overview | Config                                                 
 >✗ bad-update           0.0.0.0:9443│Bind address  0.0.0.0:9443                                                         
  ◐ legacy-9090          0.0.0.0:9090│State         error                                                                
- ◐ orders-egress       10.0.2.1:5432│last_updated  2026-10-14 10:00:00Z                                                 
- ● 0.0.0.0_8080         0.0.0.0:8080│Error         error adding listener '0.0.0.0:9443': unknown filter                 
- ● admin-static      127.0.0.1:15000│              'envoy.filters.network.nope'                                         
- ● uds-agent   unix:/var/run/agent.s│              while processing LDS update version 9                                
- ● virtualInbound      0.0.0.0:15006│              still serving the previous configuration                             
+ ◐ orders-egress       10.0.2.1:5432│Version       prev                                                                 
+ ● 0.0.0.0_8080         0.0.0.0:8080│last_updated  2026-10-14 10:00:00Z                                                 
+ ● admin-static      127.0.0.1:15000│Error         error adding listener '0.0.0.0:9443': unknown filter                 
+ ● uds-agent   unix:/var/run/agent.s│              'envoy.filters.network.nope'                                         
+ ● virtualInbound      0.0.0.0:15006│              while processing LDS update version 9                                
+                                    │              still serving the previous configuration                             
                                     │                                                                                   
                                     │Filter chains (1)                                                                  
                                     │ #1  any                                                                           
                                     │     tcp_proxy                                                                     
-                                    │                                                                                   
                                     │                                                                                   
                                     │                                                                                   
                                     │                                                                                   

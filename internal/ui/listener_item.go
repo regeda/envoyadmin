@@ -80,7 +80,7 @@ func prop(label, value string) string {
 	return dimStyle.Render(pad(label, overviewLabelW)) + value
 }
 
-// sticky returns the rows that never scroll: the three properties, the error
+// sticky returns the rows that never scroll: the four properties, the error
 // block (error state only) and the chain heading.
 func (it listenerItem) sticky(w int) []string {
 	l := it.l
@@ -88,6 +88,7 @@ func (it listenerItem) sticky(w int) []string {
 	lines := []string{
 		prop("Bind address", orDash(l.Address)),
 		prop("State", stStyle.Render(l.StateText())),
+		prop("Version", orDash(l.VersionInfo)),
 	}
 	updated := "-"
 	if !l.LastUpdated.IsZero() {

@@ -5,12 +5,12 @@
 / 150                               │  admin-static  ·  Overview | Config                                               
 >● admin-static      127.0.0.1:15000│Bind address  127.0.0.1:15000                                                      
  ● virtualInbound      0.0.0.0:15006│State         static                                                               
+                                    │Version       -                                                                    
                                     │last_updated  2026-10-14 10:00:00Z                                                 
                                     │                                                                                   
                                     │Filter chains (1)                                                                  
                                     │ #1  any                                                                           
                                     │     tcp_proxy                                                                     
-                                    │                                                                                   
                                     │                                                                                   
                                     │                                                                                   
                                     │                                                                                   
