@@ -230,13 +230,16 @@ func TestEndpointsLayoutFitsWithoutClip(t *testing.T) {
 	}
 }
 
-func TestEndpointsDropsZoneThenWeightWhenNarrow(t *testing.T) {
+func TestEndpointsDropsWeightThenZoneWhenNarrow(t *testing.T) {
 	lines := endpointLines(typicalCluster(), 60, 8, 0)
 	if strings.Contains(lines[1], "ZONE") || strings.Contains(lines[2], "eu-west") {
 		t.Fatalf("zone should be dropped: %q", lines[1])
 	}
 	if strings.Contains(lines[1], "WEIGHT") {
 		t.Fatalf("weight should be dropped before flags are squeezed: %q", lines[1])
+	}
+	if f := strings.Fields(lines[1]); strings.Join(f, " ") != "ADDRESS FLAGS RQ_ACTIVE RQ_ERR CX_ACTIVE" {
+		t.Fatalf("columns: %v", f)
 	}
 	for _, col := range []string{"ADDRESS", "FLAGS", "RQ_ACTIVE", "RQ_ERR", "CX_ACTIVE"} {
 		if !strings.Contains(lines[1], col) {
@@ -321,5 +324,33 @@ func TestEndpointsHeaderFitsAtMinimumTerminalWidth(t *testing.T) {
 		if !strings.Contains(lines[1], "CX_ACTIVE") {
 			t.Fatalf("w=%d header lost CX_ACTIVE: %q", w, lines[1])
 		}
+	}
+}
+
+// Drop priority: WEIGHT goes first, then ZONE, before FLAGS is squeezed.
+// (Replaces the round-1 order, which dropped ZONE before WEIGHT.)
+func TestEndpointsDropPriorityWeightBeforeZone(t *testing.T) {
+	snap := fetchSnap(t, demo.Degraded())
+	var c snapshot.Cluster
+	for _, cc := range snap.Clusters {
+		if cc.Name == "orders-db" {
+			c = cc
+		}
+	}
+	// 120x30: 77-cell pane; WEIGHT dropped, ZONE kept, flag whole.
+	lines := endpointLines(c, 77, 6, 0)
+	if got := strings.Join(strings.Fields(lines[1]), " "); got != "ADDRESS FLAGS ZONE RQ_ACTIVE RQ_ERR CX_ACTIVE" {
+		t.Fatalf("w=77 columns: %q", got)
+	}
+	if !strings.Contains(lines[2], "FAILED_OUTLIER_CHECK") || strings.Contains(lines[2], "…") {
+		t.Fatalf("flag cut: %q", lines[2])
+	}
+	// Only FLAGS + numeric columns fit (flags still whole at their needed width).
+	lines = endpointLines(c, 66, 6, 0)
+	if got := strings.Join(strings.Fields(lines[1]), " "); got != "ADDRESS FLAGS RQ_ACTIVE RQ_ERR CX_ACTIVE" {
+		t.Fatalf("w=66 columns: %q", got)
+	}
+	if !strings.Contains(lines[2], "FAILED_OUTLIER_CHECK") {
+		t.Fatalf("flag cut at w=66: %q", lines[2])
 	}
 }

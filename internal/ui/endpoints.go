@@ -15,8 +15,9 @@ import (
 const (
 	minAddrW      = 7 // header "ADDRESS"
 	maxAddrW      = 26
-	weightW       = 6
-	zoneW         = 12
+	minWeightW    = 6 // header "WEIGHT"
+	minZoneW      = 4 // header "ZONE"
+	maxZoneW      = 12
 	rqActiveW     = 9
 	rqErrW        = 6
 	cxActiveW     = 9
@@ -128,12 +129,17 @@ func endpointLines(c snapshot.Cluster, w, h, scroll int) []string {
 		addrW = max(addrW, min(lipgloss.Width(hst.Address), maxAddrW))
 	}
 	// columns: ADDRESS FLAGS [WEIGHT] [ZONE] RQ_ACTIVE RQ_ERR CX_ACTIVE
-	// FLAGS gets what the hosts need; ZONE, then WEIGHT, are dropped before
-	// FLAGS is squeezed.
+	// FLAGS gets what the hosts need; WEIGHT, then ZONE, are dropped before
+	// FLAGS is squeezed. ZONE and WEIGHT are sized to their widest value.
+	weightW, zoneW := minWeightW, minZoneW
+	for _, hst := range hosts {
+		weightW = max(weightW, digits(int(hst.Weight)))
+		zoneW = max(zoneW, min(lipgloss.Width(orDash(hst.Zone)), maxZoneW))
+	}
 	need := flagsNeeded(hosts)
 	showZone, showWeight := true, true
 	flagsW := 0
-	for _, opt := range [][2]bool{{true, true}, {false, true}, {false, false}} {
+	for _, opt := range [][2]bool{{true, true}, {true, false}, {false, false}} {
 		showZone, showWeight = opt[0], opt[1]
 		cols := 5 // address, flags, three numeric
 		fixed := addrW + numericFixedW
