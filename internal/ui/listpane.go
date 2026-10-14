@@ -20,7 +20,7 @@ const (
 
 type match struct {
 	idx  int   // index into listPane.all
-	hits []int // matched rune positions in the name
+	hits []int // matched byte offsets in the name (as reported by fuzzy)
 }
 
 type listPane struct {
@@ -111,6 +111,7 @@ func (l *listPane) clampOffset() {
 	if l.cursor >= l.offset+l.rows() {
 		l.offset = l.cursor - l.rows() + 1
 	}
+	l.offset = min(l.offset, max(len(l.visible)-l.rows(), 0))
 	l.offset = max(l.offset, 0)
 }
 
@@ -194,10 +195,10 @@ func (l listPane) row(i int) string {
 		hit[h] = true
 	}
 	var name strings.Builder
-	for ri, r := range []rune(plain) {
+	for bi, r := range plain {
 		s := string(r)
 		switch {
-		case hit[ri]:
+		case hit[bi]:
 			s = lipgloss.NewStyle().Bold(true).Underline(true).Render(s)
 		case i == l.cursor:
 			s = boldStyle.Render(s)

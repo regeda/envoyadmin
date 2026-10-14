@@ -7,6 +7,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
 
 	"github.com/regeda/txenvoy/internal/snapshot"
 )
@@ -151,6 +153,98 @@ func TestLongAndWideNamesNeverExceedWidth(t *testing.T) {
 	}
 	if n := strings.Count(l.View(), "\n") + 1; n != 12 {
 		t.Fatalf("height = %d lines, want 12", n)
+	}
+}
+
+func TestLongNameTruncatedKeepsCountColumn(t *testing.T) {
+	long := strings.Repeat("very-long-cluster-name-", 10)
+	l := newList(cl(long, 1, 2), cl("日本語のクラスター名前日本語のクラスター名前", 1, 1), cl("ok", 3, 3))
+	lines := strings.Split(ansi.Strip(l.View()), "\n")
+	for i, want := range []string{"1/2", "1/1", "3/3"} {
+		line := strings.TrimRight(lines[1+i], " ")
+		if !strings.HasSuffix(line, want) {
+			t.Fatalf("row %d %q must end with %q", i, line, want)
+		}
+	}
+	if !strings.Contains(lines[1], "very-long-cluster-name-") || strings.Contains(lines[1], long) {
+		t.Fatalf("name must be truncated at the tail: %q", lines[1])
+	}
+}
+
+func TestZeroHostRow(t *testing.T) {
+	l := newList(cl("empty", 0, 0))
+	if v := l.View(); !strings.Contains(v, "0/0") || !strings.Contains(v, "empty") {
+		t.Fatal(v)
+	}
+}
+
+func TestHighlightUsesByteOffsetsForMultiByteNames(t *testing.T) {
+	old := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI)
+	t.Cleanup(func() { lipgloss.SetColorProfile(old) })
+
+	l := newList(cl("日本-api", 1, 1))
+	l.HandleKey(key("/"))
+	typeInto(&l, "api")
+	hl := lipgloss.NewStyle().Bold(true).Underline(true).Render
+	v := l.View()
+	for _, r := range "api" {
+		if !strings.Contains(v, hl(string(r))) {
+			t.Fatalf("%q not highlighted in %q", r, v)
+		}
+	}
+	for _, r := range "日本-" {
+		if strings.Contains(v, hl(string(r))) {
+			t.Fatalf("%q wrongly highlighted in %q", r, v)
+		}
+	}
+}
+
+func TestScrollWindowShrinksWithList(t *testing.T) {
+	var cs []snapshot.Cluster
+	for i := 0; i < 50; i++ {
+		cs = append(cs, cl(fmt.Sprintf("svc-%02d", i), 1, 1))
+	}
+	l := newList(cs...)
+	for i := 0; i < 49; i++ {
+		l.HandleKey(key("down"))
+	}
+	l.SetClusters(cs[:20])
+	v := l.View()
+	if !strings.Contains(v, "svc-19") || !strings.Contains(v, "svc-09") {
+		t.Fatalf("window must be full after shrink:\n%s", v)
+	}
+}
+
+func TestScrollWindowAfterPaneGrows(t *testing.T) {
+	var cs []snapshot.Cluster
+	for i := 0; i < 20; i++ {
+		cs = append(cs, cl(fmt.Sprintf("svc-%02d", i), 1, 1))
+	}
+	l := newList(cs...)
+	for i := 0; i < 19; i++ {
+		l.HandleKey(key("down"))
+	}
+	l.SetSize(60, 40)
+	if !strings.Contains(l.View(), "svc-00") {
+		t.Fatalf("all rows must show once the pane fits them:\n%s", l.View())
+	}
+}
+
+func TestScrollDownThenUpKeepsCursorVisible(t *testing.T) {
+	var cs []snapshot.Cluster
+	for i := 0; i < 50; i++ {
+		cs = append(cs, cl(fmt.Sprintf("svc-%02d", i), 1, 1))
+	}
+	l := newList(cs...)
+	for i := 0; i < 40; i++ {
+		l.HandleKey(key("down"))
+	}
+	for i := 0; i < 35; i++ {
+		l.HandleKey(key("up"))
+	}
+	if !strings.Contains(l.View(), "svc-05") {
+		t.Fatalf("cursor row must be visible:\n%s", l.View())
 	}
 }
 
