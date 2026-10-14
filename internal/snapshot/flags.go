@@ -10,13 +10,22 @@ var unhealthyFlags = map[string]bool{
 	"FAILED_OUTLIER_CHECK":           true,
 	"EDS_STATUS_UNHEALTHY":           true,
 	"EDS_STATUS_TIMEOUT":             true,
+	"EDS_STATUS_DRAINING":            true,
 	"ACTIVE_HC_TIMEOUT":              true,
 	"EXCLUDED_VIA_IMMEDIATE_HC_FAIL": true,
 	"PENDING_DYNAMIC_REMOVAL":        true,
 }
 
-// IsUnhealthyFlag reports whether a flag means the host is not serving traffic.
-// Degraded and pending flags are informational.
+// IsUnhealthyFlag reports whether a flag means the host is not getting traffic.
+//
+// It follows Envoy's HealthFlag semantics: FAILED_ACTIVE_HC, FAILED_OUTLIER_CHECK,
+// EXCLUDED_VIA_IMMEDIATE_HC_FAIL and PENDING_DYNAMIC_REMOVAL (a host removed from
+// discovery that is still draining on an active health check) take the host out
+// of rotation. Envoy sets FAILED_EDS_HEALTH for EDS UNHEALTHY, DRAINING and
+// TIMEOUT, so all three count. ACTIVE_HC_TIMEOUT accompanies a failed check.
+// The DEGRADED flags (health check or EDS) only reduce a host's priority and it
+// still serves traffic, and PENDING_ACTIVE_HC just means the first active health
+// check has not completed yet, so those are informational.
 func IsUnhealthyFlag(flag string) bool { return unhealthyFlags[flag] }
 
 func flagsOf(hs *adminv3.HostHealthStatus) []string {

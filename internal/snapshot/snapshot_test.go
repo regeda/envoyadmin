@@ -304,3 +304,31 @@ func TestYAMLRenderErrorIsReportedPerCluster(t *testing.T) {
 		t.Fatalf("fine: %+v", f.Config)
 	}
 }
+
+func TestEDSDrainingHostsAreUnhealthy(t *testing.T) {
+	// Envoy sets FAILED_EDS_HEALTH for EDS UNHEALTHY, DRAINING and TIMEOUT;
+	// DEGRADED only sets DEGRADED_EDS_HEALTH and still takes traffic.
+	if !IsUnhealthyFlag("EDS_STATUS_DRAINING") || IsUnhealthyFlag("EDS_STATUS_DEGRADED") {
+		t.Fatal("IsUnhealthyFlag misclassifies EDS statuses")
+	}
+	snap, err := Fetch(context.Background(), envoyServer(t, map[string]string{
+		"/clusters": `{"cluster_statuses":[
+		 {"name":"drain","host_statuses":[
+		   {"address":{"socket_address":{"address":"10.0.0.1","port_value":1}},"health_status":{"eds_health_status":"DRAINING"}},
+		   {"address":{"socket_address":{"address":"10.0.0.2","port_value":1}},"health_status":{"eds_health_status":"DRAINING"}}]},
+		 {"name":"degr","host_statuses":[
+		   {"address":{"socket_address":{"address":"10.0.0.3","port_value":1}},"health_status":{"eds_health_status":"DEGRADED"}}]}]}`,
+		"/config_dump?resource=dynamic_active_clusters": `{}`,
+		"/config_dump?resource=static_clusters":         `{}`,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := byName(snap)
+	if m["drain"].Health() != Unhealthy || m["drain"].HealthyCount() != 0 {
+		t.Fatalf("all-draining cluster: %v healthy=%d", m["drain"].Health(), m["drain"].HealthyCount())
+	}
+	if m["degr"].HealthyCount() != 1 {
+		t.Fatalf("degraded host must still count healthy: %+v", m["degr"])
+	}
+}
