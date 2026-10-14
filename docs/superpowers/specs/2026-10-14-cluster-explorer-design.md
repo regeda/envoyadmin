@@ -124,7 +124,7 @@ The cluster explorer is concrete code. The list/detail pane contains no cluster-
 ```
 rows 1-2   logo (left)            connection block (right)
 row  3     margin (blank)
-row  4     tab: Clusters (N)
+row  4     tab row: Clusters (N)  Listeners (M)   (every resource; see the listeners spec)
 rows 5..H-1  list pane (30% of the width, floor 28) | detail pane
 row  H     status bar
 ```
@@ -145,7 +145,7 @@ Logo (2 rows, half-block characters, one accent color):
 - **Connection block**, right-aligned:
   - Row 1 is `● connected` (green), `◌ connecting…` (dim, before the first response) or `✗ disconnected` (red), followed by the admin URL.
   - Row 2 is the Envoy version (from `/server_info`, omitted if unavailable) and "updated Ns ago", or "last ok Ns ago" on error.
-- **Tab** shows the active pane and its count. Only `Clusters` appears in v1. Placeholder tabs for future panes are not shown.
+- **Tab row** shows every resource with its count, the active one marked (`Clusters (N)  Listeners (M)`). Superseded since v1, which showed only `Clusters`: see `2026-10-14-listeners-tab-design.md` §3. Placeholder tabs for future panes are still not shown.
 
 ### 5.3 Error banner
 
@@ -183,6 +183,8 @@ Logo (2 rows, half-block characters, one accent color):
 - Under `NO_COLOR` it falls back to plain YAML.
 
 ### 5.8 Keys
+
+Superseded by `2026-10-14-listeners-tab-design.md` §3: `Tab`/`Shift+Tab` now switch resources, `Enter` focuses the details, `Esc` returns to the list, and `o` opens the first detail tab (`e` stays an alias for Endpoints). The table below is the v1 set.
 
 | Key | Action |
 |---|---|

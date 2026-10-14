@@ -114,3 +114,38 @@ func TestGoldenDetailFocus(t *testing.T) {
 	m := loaded(t, demo.Degraded(), 120, 30)
 	golden(t, send(m, key("enter")))
 }
+
+func TestGoldenListenersList(t *testing.T) {
+	golden(t, send(loaded(t, demo.Degraded(), 120, 30), key("tab")))
+}
+
+func TestGoldenListenerConfig(t *testing.T) {
+	m := send(loaded(t, demo.Degraded(), 120, 30), key("tab"))
+	golden(t, send(m, key("c")))
+}
+
+func TestGoldenListenerDetailFocus(t *testing.T) {
+	m := send(loaded(t, demo.Degraded(), 120, 30), key("tab"))
+	golden(t, send(m, key("enter")))
+}
+
+func TestGoldenListenerFiltered(t *testing.T) {
+	m := send(loaded(t, demo.Degraded(), 120, 30), key("tab"))
+	m = typeText(send(m, key("/")), "150")
+	golden(t, send(m, key("enter")))
+}
+
+func TestGoldenListenerActiveWithChains(t *testing.T) {
+	m := send(loaded(t, demo.Degraded(), 120, 30), key("tab"))
+	m = typeText(send(m, key("/")), "virtualInbound")
+	golden(t, send(m, key("enter")))
+}
+
+func TestGoldenListenersFailedInline(t *testing.T) {
+	m := sized(New(goldenOpts()), 120, 30)
+	s := fetchSnap(t, demo.Degraded())
+	s.Listeners = nil
+	s.ListenersErr = "listeners unavailable: GET /config_dump: 503 Service Unavailable"
+	m = send(m, snapshotMsg{snap: s})
+	golden(t, send(m, key("tab")))
+}

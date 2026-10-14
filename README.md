@@ -1,11 +1,14 @@
 # txenvoy
 
-A real-time terminal UI for Envoy. The first feature is a **cluster explorer with live endpoint health**:
-cluster list on the left, details on the right, and a header showing the connection state and errors.
+A real-time terminal UI for Envoy. It has two tabs, **Clusters** (a cluster explorer with live endpoint health) and **Listeners**:
+a list on the left, details on the right, and a header showing the connection state and errors. `Tab` switches between them.
 
 - Cluster list: name, type (EDS / STRICT_DNS / ...), healthy/total hosts, and a colored marker when any host is unhealthy or ejected. `/` fuzzy-filters.
 - Endpoints tab: address, health flags (`FAILED_ACTIVE_HC`, `FAILED_OUTLIER_CHECK`, `EDS_STATUS_UNHEALTHY`, ...), weight, zone, `rq_active` / `rq_error` / `cx_active`.
 - Config tab (`c`): the cluster's config from `/config_dump` as highlighted, line-numbered YAML, with `version_info` and `last_updated`.
+- Listeners tab: name and address with a state glyph (`●` active or static, `◐` warming or draining, `✗` rejected update), sorted problems first. `/` fuzzy-filters by name and address.
+- Listener Overview (`o`): bind address, state, `version_info`, `last_updated`, the error of a rejected update (the previous configuration keeps serving) and the filter chains with their match and filters. The Config tab (`c`) shows the listener as numbered YAML.
+- A failing listener dump never raises the error banner: the tab reads `Listeners (!)` with an inline message and Clusters keep working.
 - Auto-refresh; the UI never blocks on HTTP. Errors appear as a red banner over the top of the screen and clear when Envoy answers again.
 
 ## Install and run
@@ -34,10 +37,12 @@ bin/txenvoy --admin http://localhost:15000
 | `↑/↓`, `j/k` | move in the list, or scroll the focused detail pane |
 | `PgUp/PgDn`, `g/G` | page, jump to top / bottom |
 | `Ctrl+N` / `Ctrl+P` | move while typing in the filter |
-| `/` | fuzzy filter (`Enter` keeps it, `Esc` clears it) |
-| `Tab` | switch focus between list and detail (the focused pane is marked: `▌` on the detail tab line, `focus: detail` in the status bar, and a `›` list cursor) |
-| `Esc` / `Shift+Tab` | back to the list (in the list, `Esc` clears the filter) |
-| `c` / `e` | Config / Endpoints tab |
+| `/` | fuzzy filter by name (and address, on Listeners); `Enter` keeps it, `Esc` clears it |
+| `Tab` / `Shift+Tab` | switch between Clusters and Listeners (ignored while typing a filter) |
+| `Enter` | focus the details (marked by `▌` on the detail tab line, `focus: detail` in the status bar and a `›` list cursor); arrows, `j/k`, `PgUp/PgDn` and `g/G` then scroll them |
+| `Esc` | back to the list (in the list it clears the filter) |
+| `c` | Config tab |
+| `o` / `e` | Overview tab (Endpoints for a cluster) |
 | `r` | refresh now |
 | `x` | dismiss the error banner |
 | `?` | toggle the full key list |

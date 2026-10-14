@@ -1,0 +1,30 @@
+▀█▀ ▀▄▀ █▀▀ █▄ █ █ █ █▀█ █ █                                                             ● connected  http://envoy:15000
+ █  █ █ ██▄ █ ▀█ ▀▄▀ █▄█  █                                                                Envoy 1.31.0 · updated 2s ago
+
+  Clusters (6)   Listeners (7) 
+/ 150                               │  admin-static  ·  Overview | Config                                               
+>● admin-static      127.0.0.1:15000│Bind address  127.0.0.1:15000                                                      
+ ● virtualInbound      0.0.0.0:15006│State         static                                                               
+                                    │version_info  -                                                                    
+                                    │last_updated  2026-10-14 10:00:00Z                                                 
+                                    │                                                                                   
+                                    │Filter chains (1)                                                                  
+                                    │ #1  any                                                                           
+                                    │     tcp_proxy                                                                     
+                                    │                                                                                   
+                                    │                                                                                   
+                                    │                                                                                   
+                                    │                                                                                   
+                                    │                                                                                   
+                                    │                                                                                   
+                                    │                                                                                   
+                                    │                                                                                   
+                                    │                                                                                   
+                                    │                                                                                   
+                                    │                                                                                   
+                                    │                                                                                   
+                                    │                                                                                   
+                                    │                                                                                   
+                                    │                                                                                   
+                                    │                                                                                   
+ 7 listeners · 3 not active ? help · q quit · tab switch · enter details · / filter · c config · o overview · r refresh 

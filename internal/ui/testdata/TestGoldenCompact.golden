@@ -1,5 +1,5 @@
 txenvoy                                                              ● connected  http://envoy:15000
-  Clusters (6) 
+  Clusters (6)   Listeners (7) 
 / to filter                   │  orders-db  ·  Endpoints | Config                                   
 >● orders-d STRICT_DNS     0/2│2 hosts · 0 healthy · 2 ejected                                      
  ● api-gate EDS            2/3│ADDRESS        FLAGS                RQ_ACTIVE RQ_ERR CX_ACTIVE       
@@ -17,4 +17,4 @@ txenvoy                                                              ● connect
                               │                                                                     
                               │                                                                     
                               │                                                                     
- 6 clusters · 2 unhealthy           ? help · q quit · / filter · c config · e endpoints · r refresh 
+ 6 clusters · 2 unhealthy ? help · q quit · tab switch · enter details · / filter · c config · o ove

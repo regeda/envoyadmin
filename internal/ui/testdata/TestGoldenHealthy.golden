@@ -1,7 +1,7 @@
 ▀█▀ ▀▄▀ █▀▀ █▄ █ █ █ █▀█ █ █                                                             ● connected  http://envoy:15000
  █  █ █ ██▄ █ ▀█ ▀▄▀ █▄█  █                                                                Envoy 1.31.0 · updated 2s ago
 
-  Clusters (3) 
+  Clusters (3)   Listeners (3) 
 / to filter                         │  api-gateway  ·  Endpoints | Config                                               
 >● api-gateway  EDS              2/2│2 hosts · 2 healthy · 0 ejected                                                    
  ● search       EDS              1/1│ADDRESS        FLAGS WEIGHT ZONE       RQ_ACTIVE RQ_ERR CX_ACTIVE                  
@@ -27,4 +27,4 @@
                                     │                                                                                   
                                     │                                                                                   
                                     │                                                                                   
- 3 clusters · 0 unhealthy                               ? help · q quit · / filter · c config · e endpoints · r refresh 
+ 3 clusters · 0 unhealthy   ? help · q quit · tab switch · enter details · / filter · c config · o overview · r refresh 

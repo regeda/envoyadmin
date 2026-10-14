@@ -67,7 +67,7 @@ Success criteria:
 
 - The tab row shows both resources: `Clusters (6)  Listeners (3)`. The active tab is reversed and bold, the other is dim. If the listener dump failed the label reads `Listeners (!)` in yellow. The compact header keeps the same tab row.
 - Status bar counts follow the active tab: `6 clusters · 2 unhealthy`, or `3 listeners · 1 not active` (warming, draining or error). `↻` and `focus: detail` appear as today.
-- Hint line, list focused: `tab clusters/listeners · enter details · / filter · ? help · q quit` (most important keys first so they survive clipping). Details focused: `esc back · ↑↓ scroll · c config · o overview · q quit`. The `?` long line lists every key.
+- Hint line, list focused: `? help · q quit · tab switch · enter details · / filter · c config · o overview · r refresh` (`? help` and `q quit` first so they survive clipping at 80 columns). Details focused: `esc back · ↑↓ scroll · c config · o overview · q quit`. The `?` long line lists every key.
 
 ## 4. Shared components
 
@@ -83,8 +83,8 @@ type resourceItem interface {
     Title() string                   // detail header (the name)
     OverviewName() string            // "Endpoints" or "Overview"
     Overview(w, h, scroll int) string // exactly h lines, none wider than w
-    OverviewMaxScroll(h int) int
-    Config() snapshot.ConfigInfo     // YAML, version_info, last_updated, static, error
+    OverviewMaxScroll(w, h int) int      // w too: the error block wraps to the pane width
+    Config() snapshot.ConfigInfo     // JSON/YAML, version_info, last_updated, static, error
 }
 ```
 
@@ -189,7 +189,7 @@ type FilterChain struct {
 
 ### Lazy YAML
 
-`ConfigInfo` carries the raw JSON and a pointer to a shared lazy cache. `YAML()` converts on first use and caches the result for the life of that snapshot; a conversion failure surfaces through `Err`. Only the selected item is ever converted. This applies to clusters as well, which removes the "every poll converts every cluster" cost; cluster behaviour is otherwise unchanged and covered by the existing tests.
+`ConfigInfo` carries the raw `JSON` and a pointer to a shared lazy cache. `Render() (text, problem string)` converts on first use and caches the result for the life of that snapshot; a conversion failure is returned as `problem`, while `Err` is set at fetch time only. The `YAML` field remains as an explicit pre-rendered override (it wins over `JSON` when set); `Fetch` no longer fills it. Only the selected item is ever converted. This applies to clusters as well, which removes the "every poll converts every cluster" cost; cluster behaviour is otherwise unchanged and covered by the existing tests.
 
 ## 6. Listener UI
 
@@ -201,7 +201,7 @@ type FilterChain struct {
 - `◐` yellow: warming and draining.
 - `✗` red: error.
 
-The name is on the left, the address column beside it is as wide as the widest address (capped at 21 cells); the name gets the rest (at least 8 cells) and the address shrinks first when space is tight. `FilterText()` is `name + " " + address`, so `15001` or `0.0.0.0` find a listener; highlights appear in whichever part matched. Rows never exceed the pane width and handle wide characters.
+The name is on the left, the address is right-aligned and sized per row, not to the widest address in the list (at most 21 cells, always leaving at least 8 for the name), so a row needs no knowledge of its neighbours; the address shrinks first when space is tight and is clipped without an ellipsis (the full address is in the Overview). `FilterText()` is `name + " " + address`, so `15001` or `0.0.0.0` find a listener; highlights appear in whichever part matched. Rows never exceed the pane width and handle wide characters.
 
 ### Overview tab
 
@@ -246,6 +246,7 @@ Filter chains (3)
 
 - **Refactor phase:** every existing test and golden stays green unchanged except test helpers; `make check` after the refactor, before any listener code.
 - **admin:** real captures from Envoy (static listeners and file-based LDS dynamic listeners) under `internal/admin/testdata/`; hand-written, clearly labelled fixtures for warming, draining and error; tests for the wrapped fallback, skipping bad entries, empty `{}`, unknown `Any`, and static names read from `listener.name`.
+- **demo:** `Fault.Match` is a substring of the request URI; only matching requests fail, so a test can fail just the listener dump (`dynamic_listeners`).
 - **snapshot:** state precedence table; address formatting (IPv4, bracketed IPv6, pipe, missing); match summary order and omission; `any` / `default` labels; filter-name stripping; the `TLS` tag; version and timestamp source; an error with the old config still serving; sort order; a listener-dump failure leaving clusters intact; lazy YAML computed once and only on demand; parallel fetch returns the same data.
 - **ui:** both items against the shared interface (row width bounds, wide characters, filter text); listener glyphs; filter by address; Overview sticky rows, scrolling, clipping and the error block; Tab / Shift+Tab cycling keeping each tab's selection, filter and scroll; Tab ignored while typing a filter; Enter and Esc including the filter cases and the empty list; header tabs including `Listeners (!)`; status counts; the inline messages.
 - **Review-focus inputs, each with a test that can fail:** zero listeners; the selected listener disappearing; a tiny terminal; a pipe address; a very long SNI list; wide-character names; many unnamed chains.

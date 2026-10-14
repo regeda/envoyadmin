@@ -76,3 +76,44 @@ func TestEndToEndFailureAndRecovery(t *testing.T) {
 		}
 	}
 }
+
+// A listener failure is isolated: no banner, the clusters keep working.
+func TestEndToEndListenersTabAndIsolatedFailure(t *testing.T) {
+	fake := demo.NewServer(demo.Degraded())
+	srv := httptest.NewServer(fake)
+	defer srv.Close()
+
+	cfg := config.Config{Admin: srv.URL, Refresh: 100 * time.Millisecond, Timeout: 200 * time.Millisecond}
+	client, err := admin.NewHTTP(cfg.Admin, cfg.Timeout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	m := New(Options{
+		Ctx: ctx, Config: cfg,
+		Fetch: func(ctx context.Context) (snapshot.Snapshot, error) { return snapshot.Fetch(ctx, client) },
+	})
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(120, 30))
+
+	waitFor(t, tm, "Clusters (6)", "Listeners (7)")
+	tm.Send(key("tab"))
+	waitFor(t, tm, "virtualInbound", "0.0.0.0:15006")
+
+	// fail only the dynamic listener dump: no banner, an inline message instead
+	fake.Inject(demo.Fault{Status: 503, Match: "dynamic_listeners"})
+	waitFor(t, tm, "listeners unavailable", "Listeners (!)")
+	tm.Send(key("tab"))
+	waitFor(t, tm, "api-gateway") // the Clusters tab still works
+
+	fake.Inject(demo.Fault{})
+	waitFor(t, tm, "Listeners (7)") // the failed label can only clear through a successful fetch
+	tm.Send(key("tab"))
+	waitFor(t, tm, "virtualInbound")
+
+	tm.Send(key("q"))
+	final := tm.FinalModel(t, teatest.WithFinalTimeout(2*time.Second)).(Model)
+	if final.bannerVisible() || final.err != nil {
+		t.Fatalf("a listener failure must never raise the banner (err=%v)", final.err)
+	}
+}
