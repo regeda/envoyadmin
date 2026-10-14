@@ -10,16 +10,16 @@
                                     │Filter chains (3)                                                                  
                                     │ #1       port=8080 · transport=tls · alpn=h2                                      
                                     │          http_connection_manager · TLS                                            
+                                    │            ├ cors                                                                 
+                                    │            ├ istio.stats                                                          
+                                    │            └ router                                                               
                                     │ by-sni   sni=a.example.com,b.example.com                                          
                                     │          http_connection_manager                                                  
+                                    │            ├ cors                                                                 
+                                    │            ├ istio.stats                                                          
+                                    │            └ router                                                               
                                     │ default  any                                                                      
                                     │          tcp_proxy                                                                
-                                    │                                                                                   
-                                    │                                                                                   
-                                    │                                                                                   
-                                    │                                                                                   
-                                    │                                                                                   
-                                    │                                                                                   
                                     │                                                                                   
                                     │                                                                                   
                                     │                                                                                   

@@ -493,3 +493,49 @@ func TestFetchHTTPFiltersFromDemo(t *testing.T) {
 		t.Fatalf("0.0.0.0_8080 = %q", got)
 	}
 }
+
+// real-listeners-hcm.json is a genuine Envoy 1.31 capture (see
+// ../admin/testdata/README.md): a static listener with an HCM chain.
+func TestRealHCMCaptureThroughFetch(t *testing.T) {
+	hcm := mustRead(t, "../admin/testdata/real-listeners-hcm.json")
+	clusters := mustRead(t, "../admin/testdata/real-clusters.json")
+	cdyn := mustRead(t, "../admin/testdata/real-config-dynamic.json")
+	cstat := mustRead(t, "../admin/testdata/real-config-static.json")
+	info := mustRead(t, "../admin/testdata/real-server-info.json")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/clusters":
+			_, _ = w.Write(clusters)
+		case r.URL.Path == "/server_info":
+			_, _ = w.Write(info)
+		case r.URL.Query().Get("resource") == "dynamic_listeners":
+			_, _ = w.Write([]byte(`{"configs":[]}`))
+		case r.URL.Query().Get("resource") == "static_listeners":
+			_, _ = w.Write(hcm)
+		case r.URL.Query().Get("resource") == "dynamic_active_clusters":
+			_, _ = w.Write(cdyn)
+		default:
+			_, _ = w.Write(cstat)
+		}
+	}))
+	defer srv.Close()
+	c, _ := admin.NewHTTP(srv.URL, time.Second)
+	s, err := Fetch(context.Background(), c)
+	if err != nil || s.ListenersErr != "" {
+		t.Fatalf("%v %q", err, s.ListenersErr)
+	}
+	if len(s.Listeners) != 1 {
+		t.Fatalf("listeners: %+v", s.Listeners)
+	}
+	l := s.Listeners[0]
+	if l.Name != "static_hcm" || !l.Static || l.Address != "0.0.0.0:10080" || len(l.Chains) != 1 {
+		t.Fatalf("%+v", l)
+	}
+	ch := l.Chains[0]
+	if ch.Label != "http" || strings.Join(ch.Filters, ",") != "http_connection_manager" {
+		t.Fatalf("chain: %+v", ch)
+	}
+	if got := strings.Join(ch.HTTPFilters, ","); got != "cors,router" {
+		t.Fatalf("real http_filters = %q, want cors,router", got)
+	}
+}

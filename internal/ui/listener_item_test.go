@@ -496,3 +496,148 @@ func TestChainLabelWidthKeepsScrollMaxConsistent(t *testing.T) {
 		}
 	}
 }
+
+func hcmListener() snapshot.Listener {
+	l := lst("x", "0.0.0.0:1", snapshot.ListenerActive)
+	l.Chains = []snapshot.FilterChain{
+		{Label: "#1", Filters: []string{"http_connection_manager"}, HTTPFilters: []string{"cors", "istio.stats", "router"}},
+		{Label: "#2", Filters: []string{"tcp_proxy"}},
+		{Label: "default", Filters: []string{"http_connection_manager"}, HTTPFilters: []string{"router"}},
+	}
+	return l
+}
+
+func plainRows(it resourceItem, w, h, scroll int) []string {
+	rows := overviewRows(it, w, h, scroll)
+	for i, r := range rows {
+		rows[i] = strings.TrimRight(ansiStrip(r), " ")
+	}
+	return rows
+}
+
+func TestListenerOverviewHTTPFilterTree(t *testing.T) {
+	rows := plainRows(item0(hcmListener()), 70, 24, 0)
+	idx := func(sub string) int {
+		for i, r := range rows {
+			if strings.Contains(r, sub) {
+				return i
+			}
+		}
+		t.Fatalf("%q not found in:\n%s", sub, strings.Join(rows, "\n"))
+		return -1
+	}
+	// chain 1: filters line, then the tree directly below, indented under the filters text
+	f := idx("http_connection_manager")
+	want := []string{
+		fmt.Sprintf(" %-7s  %s", "", "http_connection_manager"),
+		fmt.Sprintf(" %-7s    %s", "", "├ cors"),
+		fmt.Sprintf(" %-7s    %s", "", "├ istio.stats"),
+		fmt.Sprintf(" %-7s    %s", "", "└ router"),
+		fmt.Sprintf(" %-7s  %s", "#2", "any"),
+		fmt.Sprintf(" %-7s  %s", "", "tcp_proxy"),
+		fmt.Sprintf(" %-7s  %s", "default", "any"),
+		fmt.Sprintf(" %-7s  %s", "", "http_connection_manager"),
+		fmt.Sprintf(" %-7s    %s", "", "└ router"),
+	}
+	for i, w := range want {
+		if rows[f+i] != w {
+			t.Fatalf("row %d = %q, want %q\n%s", f+i, rows[f+i], w, strings.Join(rows, "\n"))
+		}
+	}
+	text := strings.Join(rows, "\n")
+	if n := strings.Count(text, "└"); n != 2 {
+		t.Fatalf("one └ per tree (the last entry), got %d", n)
+	}
+	if n := strings.Count(text, "├"); n != 2 {
+		t.Fatalf("├ for all but the last, got %d", n)
+	}
+	// tcp_proxy chain has no tree: its filters line is followed by the next chain
+	if i := idx("tcp_proxy"); strings.ContainsAny(rows[i+1], "├└") {
+		t.Fatalf("a chain without HCM has no tree: %q", rows[i+1])
+	}
+}
+
+func TestListenerOverviewHTTPFilterTreeEdgeCases(t *testing.T) {
+	l := hcmListener()
+	l.Chains = []snapshot.FilterChain{
+		{Label: "none", Filters: []string{"http_connection_manager"}},
+		{Label: "one", Filters: []string{"http_connection_manager"}, HTTPFilters: []string{"router"}},
+	}
+	text := strings.Join(plainRows(item0(l), 60, 14, 0), "\n")
+	if strings.Count(text, "├")+strings.Count(text, "└") != 1 || !strings.Contains(text, "└ router") {
+		t.Fatalf("an HCM without http filters has no tree, a single entry is └:\n%s", text)
+	}
+}
+
+func TestListenerOverviewHTTPFilterLongNamesAreClipped(t *testing.T) {
+	l := hcmListener()
+	l.Chains = []snapshot.FilterChain{{Label: "c", Filters: []string{"http_connection_manager"},
+		HTTPFilters: []string{strings.Repeat("very.long.filter.name.", 8), "router"}}}
+	rows := plainRows(item0(l), 40, 12, 0)
+	var clipped bool
+	for _, r := range rows {
+		if strings.Contains(r, "├ very.long") {
+			clipped = true
+			if !strings.HasSuffix(r, "…") || lipgloss.Width(r) > 40 {
+				t.Fatalf("a long http filter name ends with … within the width: %q", r)
+			}
+		}
+	}
+	if !clipped {
+		t.Fatalf("long name row missing:\n%s", strings.Join(rows, "\n"))
+	}
+}
+
+func TestListenerOverviewHTTPFilterTreeBounds(t *testing.T) {
+	l := hcmListener()
+	for i := 0; i < 6; i++ {
+		l.Chains = append(l.Chains, snapshot.FilterChain{Label: fmt.Sprintf("hcm-%d", i), Filters: []string{"http_connection_manager"},
+			HTTPFilters: []string{"envoy-very-long-name-" + strings.Repeat("z", 60), "b", "c"}})
+	}
+	it := item0(l)
+	for w := 20; w <= 120; w += 5 {
+		for h := 1; h <= 30; h++ {
+			for _, scroll := range []int{0, 2, 1 << 20} {
+				rows := overviewRows(it, w, h, scroll)
+				if len(rows) != h {
+					t.Fatalf("w=%d h=%d: %d rows", w, h, len(rows))
+				}
+				for _, r := range rows {
+					if lipgloss.Width(r) > w {
+						t.Fatalf("w=%d h=%d: row %d wide: %q", w, h, lipgloss.Width(r), r)
+					}
+				}
+			}
+		}
+	}
+}
+
+func TestListenerOverviewHTTPFilterScrollReachesLastNestedLine(t *testing.T) {
+	l := hcmListener()
+	for i := 0; i < 5; i++ {
+		l.Chains = append(l.Chains, snapshot.FilterChain{Label: fmt.Sprintf("hcm-%d", i), Filters: []string{"http_connection_manager"},
+			HTTPFilters: []string{"a", "b", fmt.Sprintf("last-%d", i)}})
+	}
+	it := item0(l)
+	for _, h := range []int{8, 10, 14, 20} {
+		maxS := it.OverviewMaxScroll(70, h)
+		if maxS <= 0 {
+			t.Fatalf("h=%d: must scroll", h)
+		}
+		last := plainRows(it, 70, h, maxS)
+		if !strings.HasSuffix(last[h-1], "└ last-4") {
+			t.Fatalf("h=%d: the last nested line must be the bottom row at max scroll:\n%s", h, strings.Join(last, "\n"))
+		}
+		if got := plainRows(it, 70, h, maxS+7); strings.Join(got, "\n") != strings.Join(last, "\n") {
+			t.Fatalf("h=%d: scrolling past the max clamps", h)
+		}
+		if strings.Join(plainRows(it, 70, h, maxS-1), "\n") == strings.Join(last, "\n") {
+			t.Fatalf("h=%d: max-1 must differ", h)
+		}
+		for _, frag := range []string{"Bind address", "State", "Filter chains (8)"} {
+			if !strings.Contains(strings.Join(last, "\n"), frag) {
+				t.Fatalf("h=%d: sticky %q must remain", h, frag)
+			}
+		}
+	}
+}

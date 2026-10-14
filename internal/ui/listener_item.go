@@ -116,7 +116,8 @@ func (it listenerItem) sticky(w int) []string {
 	return append(lines, "", boldStyle.Render("Filter chains ("+strconv.Itoa(len(l.Chains))+")"))
 }
 
-// chainLines is two rows per chain. The label column is as wide as the widest
+// chainLines is two rows per chain, plus one row per HTTP filter of the chain's
+// HttpConnectionManager, drawn as a tree under the filters row. The label column is as wide as the widest
 // label, but at most a third of the pane (never under overviewLabelW), so long
 // Istio-style names stay distinguishable; a cut label always ends with "…".
 func (it listenerItem) chainLines(w int) []string {
@@ -141,6 +142,13 @@ func (it listenerItem) chainLines(w int) []string {
 		out = append(out,
 			" "+pad(truncEllipsis(c.Label, labelW), labelW)+"  "+match,
 			" "+strings.Repeat(" ", labelW)+"  "+dimStyle.Render(filters))
+		for i, name := range c.HTTPFilters {
+			glyph := "├"
+			if i == len(c.HTTPFilters)-1 {
+				glyph = "└"
+			}
+			out = append(out, " "+strings.Repeat(" ", labelW)+"    "+dimStyle.Render(glyph)+" "+name)
+		}
 	}
 	return out
 }

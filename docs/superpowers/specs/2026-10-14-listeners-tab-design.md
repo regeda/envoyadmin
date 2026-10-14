@@ -213,13 +213,17 @@ last_updated  2026-10-14 10:00:00Z
 Filter chains (3)
  #1       sni=a.com,b.com · port=443 · transport=tls
           http_connection_manager · TLS
+            ├ cors
+            ├ istio.stats
+            └ router
  #2       any
           tcp_proxy
  default  any
           tcp_proxy
 ```
 
-- The three property rows and the `Filter chains (N)` heading are sticky; only the chain lines scroll (two lines per chain, clamped by `OverviewMaxScroll`).
+- The three property rows and the `Filter chains (N)` heading are sticky; only the chain lines scroll (two lines per chain plus its HTTP filter tree, clamped by `OverviewMaxScroll`).
+- A chain whose filter is an HttpConnectionManager (its `typed_config.@type` is exactly `type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager`; the filter's `name` is not consulted) lists the names of that `typed_config`'s `http_filters[]` under its filters line, one per line, `├` for all but the last and `└` for the last, with the `envoy.filters.http.` prefix stripped (`istio.stats` stays as is; entries without a name are skipped). If a chain has several such filters, the first one's list is used. The tree lines scroll with their chain, clipped like every other line.
 - State values: `active`, `static`, `warming`, `draining`, `error`.
 - An error adds a red block under State with the details, word-wrapped and capped at 4 lines; it says `still serving the previous configuration` when `ServingOld` is set. The rejected YAML is on the Config tab.
 - Long match and filter lines are clipped with `…`, never silently; the full text is in Config.

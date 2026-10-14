@@ -43,3 +43,18 @@ saved. Warming was not provoked. Warming and draining fixtures are hand-written
 - `port_value`, `destination_port` and `prefix_len` are JSON numbers.
 - transport_socket was not captured (no TLS in the capture).
 - Warming was not provoked; draining was provoked but not saved.
+
+## HttpConnectionManager capture
+
+- real-listeners-hcm.json  GET /config_dump?resource=static_listeners
+
+Genuine capture from `envoyproxy/envoy:v1.31-latest` (version
+`f30db0a84189cf3e681687a4a2fa1788062592d0/1.31.10/Clean/RELEASE/BoringSSL`), saved
+as-is. It is made from `capture/bootstrap-hcm.yaml`: one static listener `static_hcm`
+(0.0.0.0:10080) whose chain `http` holds an HttpConnectionManager with an inline
+`route_config` and `http_filters` `envoy.filters.http.cors` and
+`envoy.filters.http.router`. Mount the bootstrap at `/etc/envoy/envoy.yaml`, run
+`envoy -c /etc/envoy/envoy.yaml`, and fetch `/config_dump?resource=static_listeners`
+from the admin port (9901). The HCM `typed_config` carries
+`@type: type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager`
+and `http_filters[].name`, which is what the Listener Overview's HTTP filter tree reads.

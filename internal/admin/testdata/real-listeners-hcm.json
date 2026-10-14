@@ -1,0 +1,70 @@
+{
+ "configs": [
+  {
+   "@type": "type.googleapis.com/envoy.admin.v3.ListenersConfigDump.StaticListener",
+   "listener": {
+    "@type": "type.googleapis.com/envoy.config.listener.v3.Listener",
+    "name": "static_hcm",
+    "address": {
+     "socket_address": {
+      "address": "0.0.0.0",
+      "port_value": 10080
+     }
+    },
+    "filter_chains": [
+     {
+      "filters": [
+       {
+        "name": "envoy.filters.network.http_connection_manager",
+        "typed_config": {
+         "@type": "type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager",
+         "stat_prefix": "static_hcm",
+         "route_config": {
+          "name": "local",
+          "virtual_hosts": [
+           {
+            "name": "all",
+            "domains": [
+             "*"
+            ],
+            "routes": [
+             {
+              "match": {
+               "prefix": "/"
+              },
+              "direct_response": {
+               "status": 200,
+               "body": {
+                "inline_string": "ok"
+               }
+              }
+             }
+            ]
+           }
+          ]
+         },
+         "http_filters": [
+          {
+           "name": "envoy.filters.http.cors",
+           "typed_config": {
+            "@type": "type.googleapis.com/envoy.extensions.filters.http.cors.v3.Cors"
+           }
+          },
+          {
+           "name": "envoy.filters.http.router",
+           "typed_config": {
+            "@type": "type.googleapis.com/envoy.extensions.filters.http.router.v3.Router"
+           }
+          }
+         ]
+        }
+       }
+      ],
+      "name": "http"
+     }
+    ]
+   },
+   "last_updated": "2026-10-14T08:42:34.138Z"
+  }
+ ]
+}
