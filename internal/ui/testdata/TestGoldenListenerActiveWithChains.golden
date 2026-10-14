@@ -6,7 +6,7 @@
 >● virtualInbound      0.0.0.0:15006│Bind address  0.0.0.0:15006                                                        
                                     │State         active                                                               
                                     │Version       7                                                                    
-                                    │last_updated  2026-10-14 10:00:00Z                                                 
+                                    │Last updated  2026-10-14 10:00:00Z                                                 
                                     │                                                                                   
                                     │Filter chains (3)                                                                  
                                     │ #1       port=8080 · transport=tls · alpn=h2                                      

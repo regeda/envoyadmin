@@ -122,7 +122,7 @@ func TestListenerOverviewLayout(t *testing.T) {
 		kv("Bind address", "0.0.0.0:15001"),
 		kv("State", "active"),
 		kv("Version", "42"),
-		kv("last_updated", "2026-10-14 10:00:00Z"),
+		kv("Last updated", "2026-10-14 10:00:00Z"),
 		"",
 		"Filter chains (3)",
 	}
@@ -158,7 +158,7 @@ func TestListenerOverviewStateAndBlanks(t *testing.T) {
 	static.Static, static.VersionInfo, static.LastUpdated, static.Chains = true, "", time.Time{}, nil
 	rows := overviewRows(item0(static), 60, 10, 0)
 	text := ansiStrip(strings.Join(rows, "\n"))
-	for _, frag := range []string{kv("Bind address", "-"), kv("State", "static"), kv("Version", "-"), kv("last_updated", "-"), "Filter chains (0)"} {
+	for _, frag := range []string{kv("Bind address", "-"), kv("State", "static"), kv("Version", "-"), kv("Last updated", "-"), "Filter chains (0)"} {
 		if !strings.Contains(text, frag) {
 			t.Fatalf("missing %q:\n%s", frag, text)
 		}

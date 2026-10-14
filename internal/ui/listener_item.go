@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	overviewLabelW = 14 // "Bind address"/"last_updated" (12) + 2 spaces
+	overviewLabelW = 14 // "Bind address"/"Last updated" (12) + 2 spaces
 	addrMaxW       = 21 // widest address cell in a row
 	nameMinW       = 8
 	errorMaxRows   = 4
@@ -94,7 +94,7 @@ func (it listenerItem) sticky(w int) []string {
 	if !l.LastUpdated.IsZero() {
 		updated = l.LastUpdated.UTC().Format("2006-01-02 15:04:05Z")
 	}
-	lines = append(lines, prop("last_updated", updated))
+	lines = append(lines, prop("Last updated", updated))
 
 	if l.State == snapshot.ListenerError {
 		valW := max(w-overviewLabelW, 1)
