@@ -269,8 +269,8 @@ func TestListenerListInlineMessages(t *testing.T) {
 	failed.ListenersErr = "listeners unavailable: " + strings.Repeat("very long reason ", 30)
 	m = send(send(m, snapshotMsg{snap: failed}), key("tab"))
 	for i, line := range strings.Split(m.View(), "\n") {
-		if w := len([]rune(ansiStrip(line))); w > 120 {
-			t.Fatalf("line %d is %d runes wide", i, w)
+		if w := lipgloss.Width(ansiStrip(line)); w > 120 {
+			t.Fatalf("line %d is %d cells wide", i, w)
 		}
 	}
 	if n := len(strings.Split(m.View(), "\n")); n != 30 {
@@ -303,8 +303,8 @@ func TestListenersWithAwkwardData(t *testing.T) {
 	for _, k := range []string{"enter", "c", "o", "esc", "j"} {
 		m = send(m, key(k))
 		for i, line := range strings.Split(m.View(), "\n") {
-			if w := len([]rune(ansiStrip(line))); w > 120 {
-				t.Fatalf("after %s line %d is %d runes wide", k, i, w)
+			if w := lipgloss.Width(ansiStrip(line)); w > 120 {
+				t.Fatalf("after %s line %d is %d cells wide", k, i, w)
 			}
 		}
 	}
@@ -396,11 +396,83 @@ func TestViewIsExactAtEverySizeIncludingBeforeTheFirstResize(t *testing.T) {
 
 func TestEnterDoesNotPanicOrFocusWhileFiltering(t *testing.T) {
 	m := send(listenersModel(), key("tab"))
-	m = send(m, key("/"))
+	m = typeText(send(m, key("/")), "9")
+	if len(m.cur().list.visible) == 0 {
+		t.Fatal("precondition: the filter matches something")
+	}
 	m = send(m, key("enter"))
+	if m.focus != focusList || m.cur().list.filtering || m.cur().list.query != "9" {
+		t.Fatalf("Enter while filtering only accepts the filter (focus %v, filtering %v, query %q)", m.focus, m.cur().list.filtering, m.cur().list.query)
+	}
+	if strings.Contains(m.View(), "focus: detail") {
+		t.Fatal("the details must not look focused")
+	}
 	m = send(m, key("esc"))
 	m = send(m, key("esc"))
 	if m.focus != focusList {
 		t.Fatal("focus stays on the list")
+	}
+}
+
+func TestModelKeepsTheListenerSelectedAcrossAFailedDump(t *testing.T) {
+	good := lsnap(
+		lst("l-1", "0.0.0.0:1", snapshot.ListenerActive),
+		lst("l-2", "0.0.0.0:2", snapshot.ListenerActive),
+		lst("l-3", "0.0.0.0:3", snapshot.ListenerActive),
+	)
+	m := sized(New(testOpts(nil)), 120, 30)
+	m = send(m, snapshotMsg{snap: good})
+	m = send(m, key("tab"))
+	m = send(m, key("j"))
+	m = send(m, key("j"))
+	if activeName(m) != "l-3" {
+		t.Fatalf("precondition: %q", activeName(m))
+	}
+	failed := lsnap()
+	failed.ListenersErr = "listeners unavailable: boom"
+	m = send(m, snapshotMsg{snap: failed})
+	m = send(m, snapshotMsg{snap: good})
+	if activeName(m) != "l-3" || m.cur().detail.item.Key() != "l-3" {
+		t.Fatalf("the same listener must be selected again, got %q", activeName(m))
+	}
+}
+
+func TestStatusSaysListenersUnavailableWhenTheDumpFailed(t *testing.T) {
+	m := onListeners()
+	failed := lsnap()
+	failed.ListenersErr = "listeners unavailable: boom"
+	m = send(m, snapshotMsg{snap: failed})
+	status := ansiStrip(m.statusLine())
+	if !strings.Contains(status, "listeners unavailable") || strings.Contains(status, "0 listeners") || strings.Contains(status, "not active") {
+		t.Fatalf("status: %q", status)
+	}
+}
+
+func TestSummariesUseSingularForms(t *testing.T) {
+	m := sized(New(testOpts(nil)), 120, 30)
+	s := lsnap(lst("only", "0.0.0.0:1", snapshot.ListenerActive))
+	s.Clusters = []snapshot.Cluster{cl("alpha", 1, 1)}
+	m = send(m, snapshotMsg{snap: s})
+	if st := ansiStrip(m.statusLine()); !strings.Contains(st, " 1 cluster · 0 unhealthy") {
+		t.Fatalf("clusters: %q", st)
+	}
+	m = send(m, key("tab"))
+	if st := ansiStrip(m.statusLine()); !strings.Contains(st, " 1 listener · 0 not active") {
+		t.Fatalf("listeners: %q", st)
+	}
+}
+
+func TestFocusLeavesTheDetailsWhenNothingIsSelected(t *testing.T) {
+	m := onListeners()
+	m = send(m, key("enter"))
+	if m.focus != focusDetail || !strings.Contains(m.View(), "focus: detail") {
+		t.Fatal("precondition: details focused")
+	}
+	m = send(m, snapshotMsg{snap: lsnap()})
+	if m.focus != focusList || strings.Contains(m.View(), "focus: detail") {
+		t.Fatalf("with nothing selected the focus must drop to the list (focus %v):\n%s", m.focus, m.View())
+	}
+	if strings.Contains(ansiStrip(m.View()), "▌") {
+		t.Fatal("no focus marker either")
 	}
 }

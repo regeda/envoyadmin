@@ -133,6 +133,9 @@ func (m *Model) syncDetails() {
 		it, ok := v.list.Selected()
 		v.detail.SetItem(it, ok)
 	}
+	if _, ok := m.cur().list.Selected(); !ok && m.focus == focusDetail {
+		m.setFocus(focusList) // nothing left to show details for
+	}
 }
 
 func (m Model) bannerVisible() bool {

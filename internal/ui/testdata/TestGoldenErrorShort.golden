@@ -1,7 +1,7 @@
  ✗ disconnected · http://envoy:15000 · last ok 2s ago                                                                   
  GET /clusters: 503 Service Unavailable                                                                                 
  (retrying every 3s)                                                                                                    
-  Clusters (6)   Listeners (7) 
+ [Clusters (6)]  Listeners (7) 
 / to filter                         │  orders-db  ·  Endpoints | Config                                                 
 >● orders-db    STRICT_DNS       0/2│2 hosts · 0 healthy · 2 ejected                                                    
  ● api-gateway  EDS              2/3│ADDRESS        FLAGS                WEIGHT ZONE       RQ_ACTIVE RQ_ERR CX_ACTIVE   

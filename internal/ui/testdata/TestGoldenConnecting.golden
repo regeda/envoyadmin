@@ -1,7 +1,7 @@
 ▀█▀ ▀▄▀ █▀▀ █▄ █ █ █ █▀█ █ █                                                           ◌ connecting…  http://envoy:15000
  █  █ █ ██▄ █ ▀█ ▀▄▀ █▄█  █                                                                                             
 
-  Clusters (0)   Listeners (0) 
+ [Clusters (0)]  Listeners (0) 
 / to filter                         │no cluster selected                                                                
 waiting for Envoy…                  │                                                                                   
                                     │                                                                                   

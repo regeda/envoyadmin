@@ -39,7 +39,7 @@ var resources = [kindCount]resource{
 		items: func(s snapshot.Snapshot) []resourceItem { return clusterItems(s.Clusters) },
 		count: func(s snapshot.Snapshot) int { return len(s.Clusters) },
 		summary: func(s snapshot.Snapshot) string {
-			return fmt.Sprintf("%d clusters · %d unhealthy", len(s.Clusters), s.UnhealthyClusters())
+			return fmt.Sprintf("%s · %d unhealthy", plural(len(s.Clusters), "cluster"), s.UnhealthyClusters())
 		},
 		notice:      func(snapshot.Snapshot) string { return "" },
 		warn:        func(snapshot.Snapshot) bool { return false },
@@ -51,13 +51,23 @@ var resources = [kindCount]resource{
 		items: func(s snapshot.Snapshot) []resourceItem { return listenerItems(s.Listeners) },
 		count: func(s snapshot.Snapshot) int { return len(s.Listeners) },
 		summary: func(s snapshot.Snapshot) string {
-			return fmt.Sprintf("%d listeners · %d not active", len(s.Listeners), s.ListenersNotActive())
+			if s.ListenersErr != "" {
+				return "listeners unavailable"
+			}
+			return fmt.Sprintf("%s · %d not active", plural(len(s.Listeners), "listener"), s.ListenersNotActive())
 		},
 		notice:      func(s snapshot.Snapshot) string { return s.ListenersErr },
 		warn:        func(s snapshot.Snapshot) bool { return s.ListenersErr != "" },
 		emptyList:   "no listeners",
 		emptyDetail: "no listener selected",
 	},
+}
+
+func plural(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
 }
 
 func newView(r resource, color bool) view {
