@@ -86,7 +86,7 @@ func TestFetchDoesNotConvertYAML(t *testing.T) {
 }
 
 // barrierClient proves the secondary calls run in parallel: each waits until
-// both have started, so a sequential Fetch would deadlock until the timeout.
+// all three have started, so a sequential Fetch would deadlock until the timeout.
 type barrierClient struct {
 	admin.Client
 	started chan struct{}
@@ -95,7 +95,7 @@ type barrierClient struct {
 func (b barrierClient) wait() {
 	b.started <- struct{}{}
 	deadline := time.After(2 * time.Second)
-	for len(b.started) < 2 {
+	for len(b.started) < 3 {
 		select {
 		case <-deadline:
 			return
@@ -109,6 +109,11 @@ func (b barrierClient) ClusterConfigs(ctx context.Context) ([]admin.ClusterConfi
 	return b.Client.ClusterConfigs(ctx)
 }
 
+func (b barrierClient) ListenerConfigs(ctx context.Context) ([]admin.ListenerConfig, error) {
+	b.wait()
+	return b.Client.ListenerConfigs(ctx)
+}
+
 func (b barrierClient) ServerInfo(ctx context.Context) (*adminv3.ServerInfo, error) {
 	b.wait()
 	return b.Client.ServerInfo(ctx)
@@ -116,12 +121,12 @@ func (b barrierClient) ServerInfo(ctx context.Context) (*adminv3.ServerInfo, err
 
 func TestFetchRunsSecondaryCallsInParallel(t *testing.T) {
 	real := demoClient(t)
-	b := barrierClient{Client: real, started: make(chan struct{}, 4)}
+	b := barrierClient{Client: real, started: make(chan struct{}, 3)}
 	start := time.Now()
 	if _, err := Fetch(context.Background(), b); err != nil {
 		t.Fatal(err)
 	}
 	if time.Since(start) >= 1900*time.Millisecond {
-		t.Fatal("ClusterConfigs and ServerInfo were not called concurrently")
+		t.Fatal("ClusterConfigs, ServerInfo and ListenerConfigs were not called concurrently")
 	}
 }

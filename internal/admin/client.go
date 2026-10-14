@@ -122,7 +122,7 @@ func (h *HTTP) ListenerConfigs(ctx context.Context) ([]ListenerConfig, error) {
 	for _, res := range []string{"dynamic_listeners", "static_listeners"} {
 		body, err := h.get(ctx, "/config_dump", url.Values{"resource": {res}})
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%s: %w", res, err)
 		}
 		cfgs, err := decodeListenerConfigs(body, res == "static_listeners")
 		if err != nil {

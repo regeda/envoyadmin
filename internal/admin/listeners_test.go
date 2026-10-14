@@ -219,6 +219,22 @@ func TestListenerConfigsErrors(t *testing.T) {
 	}
 }
 
+func TestListenerConfigsErrorNamesTheFailedDump(t *testing.T) {
+	for _, res := range []string{"dynamic_listeners", "static_listeners"} {
+		c := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Query().Get("resource") == res {
+				http.Error(w, "x", http.StatusServiceUnavailable)
+				return
+			}
+			_, _ = w.Write([]byte(`{}`))
+		}), time.Second)
+		_, err := c.ListenerConfigs(context.Background())
+		if err == nil || !strings.HasPrefix(err.Error(), res+": ") || !strings.Contains(err.Error(), "GET /config_dump:") || !strings.Contains(err.Error(), "503") {
+			t.Fatalf("%s: want %q-prefixed GET /config_dump 503 error, got %v", res, res+": ", err)
+		}
+	}
+}
+
 func TestListenerConfigsFromRealCapture(t *testing.T) {
 	dyn, err1 := os.ReadFile("testdata/real-listeners-dynamic.json")
 	stat, err2 := os.ReadFile("testdata/real-listeners-static.json")
