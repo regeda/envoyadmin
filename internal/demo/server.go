@@ -69,6 +69,7 @@ func (s *Server) Update(fn func(*Scenario)) {
 // clone deep-copies a chain, including its match map and string slices.
 func (c Chain) clone() Chain {
 	c.Filters = append([]string(nil), c.Filters...)
+	c.HTTPFilters = append([]string(nil), c.HTTPFilters...)
 	if c.Match != nil {
 		m := make(map[string]any, len(c.Match))
 		for k, v := range c.Match {

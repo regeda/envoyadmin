@@ -270,6 +270,65 @@ func TestListenerJSONCarriesAddressAndChains(t *testing.T) {
 	}
 }
 
+func TestHCMChainsCarryTypedConfigWithHTTPFilters(t *testing.T) {
+	dyn, _ := Degraded().ConfigDumpJSON("dynamic_listeners")
+	var dump struct {
+		Configs []struct {
+			Name   string `json:"name"`
+			Active *struct {
+				Listener struct {
+					Chains []struct {
+						Filters []struct {
+							Name        string `json:"name"`
+							TypedConfig *struct {
+								Type        string `json:"@type"`
+								StatPrefix  string `json:"stat_prefix"`
+								HTTPFilters []struct {
+									Name        string            `json:"name"`
+									TypedConfig map[string]string `json:"typed_config"`
+								} `json:"http_filters"`
+							} `json:"typed_config"`
+						} `json:"filters"`
+					} `json:"filter_chains"`
+				} `json:"listener"`
+			} `json:"active_state"`
+		} `json:"configs"`
+	}
+	if err := json.Unmarshal(dyn, &dump); err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, c := range dump.Configs {
+		if c.Name != "virtualInbound" {
+			continue
+		}
+		found = true
+		for i, ch := range c.Active.Listener.Chains {
+			tc := ch.Filters[0].TypedConfig
+			if tc == nil || tc.Type != "type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager" || tc.StatPrefix == "" {
+				t.Fatalf("chain %d: typed_config = %+v", i, tc)
+			}
+			var names []string
+			for _, h := range tc.HTTPFilters {
+				if h.TypedConfig["@type"] == "" {
+					t.Fatalf("http filter %s has no typed_config @type", h.Name)
+				}
+				names = append(names, h.Name)
+			}
+			if got := strings.Join(names, ","); got != "envoy.filters.http.cors,istio.stats,envoy.filters.http.router" {
+				t.Fatalf("chain %d http_filters = %s", i, got)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("virtualInbound missing")
+	}
+	// tcp_proxy filters carry no typed_config
+	if strings.Contains(string(mustJSON(Chain{Filters: tcp}.json())), "typed_config") {
+		t.Fatal("only HCM filters get a typed_config")
+	}
+}
+
 func TestFaultMatchScopesTheFault(t *testing.T) {
 	s := NewServer(Degraded())
 	srv := httptest.NewServer(s)
@@ -308,6 +367,7 @@ func TestUpdateDeepCopiesListeners(t *testing.T) {
 	origFilter := sc.Listeners[0].Chains[0].Filters[0]
 	origDefault := sc.Listeners[0].Default.Filters[0]
 	origDefaultName := sc.Listeners[0].Default.Name
+	origHTTP := sc.Listeners[0].Chains[0].HTTPFilters[0]
 
 	s.Update(func(x *Scenario) {
 		l := &x.Listeners[0]
@@ -317,13 +377,14 @@ func TestUpdateDeepCopiesListeners(t *testing.T) {
 		l.Chains[0].Filters[0] = "mutated"
 		l.Default.Filters[0] = "mutated"
 		l.Default.Name = "mutated"
+		l.Chains[0].HTTPFilters[0] = "mutated"
 	})
 
 	l := sc.Listeners[0]
 	if l.Name != origName || l.Chains[0].Match["transport_protocol"] != origChain ||
 		l.Chains[1].Match["server_names"].([]string)[0] != origSNI ||
 		l.Chains[0].Filters[0] != origFilter || l.Default.Filters[0] != origDefault ||
-		l.Default.Name != origDefaultName {
+		l.Default.Name != origDefaultName || l.Chains[0].HTTPFilters[0] != origHTTP {
 		t.Fatal("Update must not mutate the scenario passed to SetScenario/NewServer")
 	}
 	srv := httptest.NewServer(s)

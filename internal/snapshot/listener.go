@@ -28,7 +28,10 @@ type FilterChain struct {
 	Label   string
 	Match   []string
 	Filters []string
-	TLS     bool
+	// HTTPFilters are the http_filters[] names (the envoy.filters.http. prefix
+	// stripped) of the first HttpConnectionManager filter in the chain.
+	HTTPFilters []string
+	TLS         bool
 }
 
 type Listener struct {
@@ -163,14 +166,41 @@ func parseAddress(raw json.RawMessage) string {
 	return ""
 }
 
-const networkFilterPrefix = "envoy.filters.network."
+const (
+	networkFilterPrefix = "envoy.filters.network."
+	httpFilterPrefix    = "envoy.filters.http."
+	hcmTypeURL          = "type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager"
+)
+
+// parseHTTPFilters returns the http_filters[] names of an HttpConnectionManager
+// typed_config and whether it is one (the exact @type decides, never the
+// filter name). Best effort: wrong types yield fewer names, never a panic.
+func parseHTTPFilters(typed json.RawMessage) (names []string, isHCM bool) {
+	var tc struct {
+		Type    string `json:"@type"`
+		Filters []struct {
+			Name string `json:"name"`
+		} `json:"http_filters"`
+	}
+	_ = json.Unmarshal(typed, &tc)
+	if tc.Type != hcmTypeURL {
+		return nil, false
+	}
+	for _, f := range tc.Filters {
+		if f.Name != "" {
+			names = append(names, strings.TrimPrefix(f.Name, httpFilterPrefix))
+		}
+	}
+	return names, true
+}
 
 func parseChain(raw json.RawMessage, label string) FilterChain {
 	var c struct {
 		Name    string                     `json:"name"`
 		Match   map[string]json.RawMessage `json:"filter_chain_match"`
 		Filters []struct {
-			Name string `json:"name"`
+			Name        string          `json:"name"`
+			TypedConfig json.RawMessage `json:"typed_config"`
 		} `json:"filters"`
 		TransportSocket struct {
 			Name string `json:"name"`
@@ -181,8 +211,12 @@ func parseChain(raw json.RawMessage, label string) FilterChain {
 	if label != "default" && c.Name != "" {
 		fc.Label = c.Name
 	}
+	seenHCM := false
 	for _, f := range c.Filters {
 		fc.Filters = append(fc.Filters, strings.TrimPrefix(f.Name, networkFilterPrefix))
+		if !seenHCM { // the first HttpConnectionManager is authoritative
+			fc.HTTPFilters, seenHCM = parseHTTPFilters(f.TypedConfig)
+		}
 	}
 	return fc
 }

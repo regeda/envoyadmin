@@ -35,7 +35,10 @@ type Chain struct {
 	Name    string
 	Match   map[string]any // filter_chain_match as Envoy emits it
 	Filters []string       // short names, e.g. "tcp_proxy"
-	TLS     bool
+	// HTTPFilters are full http filter names emitted under the
+	// http_connection_manager filter's typed_config (ignored for other filters).
+	HTTPFilters []string
+	TLS         bool
 }
 
 type Listener struct {
@@ -157,13 +160,39 @@ func (c Chain) json() map[string]any {
 	}
 	filters := []any{}
 	for _, f := range c.Filters {
-		filters = append(filters, map[string]any{"name": "envoy.filters.network." + f})
+		nf := map[string]any{"name": "envoy.filters.network." + f}
+		if f == "http_connection_manager" {
+			httpFilters := []any{}
+			for _, h := range c.HTTPFilters {
+				httpFilters = append(httpFilters, map[string]any{
+					"name":         h,
+					"typed_config": map[string]any{"@type": "type.googleapis.com/" + httpFilterProto(h)},
+				})
+			}
+			nf["typed_config"] = map[string]any{
+				"@type":        "type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager",
+				"stat_prefix":  "demo",
+				"http_filters": httpFilters,
+			}
+		}
+		filters = append(filters, nf)
 	}
 	out["filters"] = filters
 	if c.TLS {
 		out["transport_socket"] = map[string]any{"name": "envoy.transport_sockets.tls"}
 	}
 	return out
+}
+
+// httpFilterProto is a plausible proto type for a demo http filter's typed_config.
+func httpFilterProto(name string) string {
+	switch name {
+	case "envoy.filters.http.router":
+		return "envoy.extensions.filters.http.router.v3.Router"
+	case "envoy.filters.http.cors":
+		return "envoy.extensions.filters.http.cors.v3.Cors"
+	}
+	return "udpa.type.v1.TypedStruct"
 }
 
 func (l Listener) json() map[string]any {
@@ -281,10 +310,18 @@ var (
 	tcp = []string{"tcp_proxy"}
 )
 
+// The http filters of an Istio-style sidecar and of a plain edge listener; a
+// fresh slice per call so scenarios never share backing arrays.
+func sidecarHTTP() []string {
+	return []string{"envoy.filters.http.cors", "istio.stats", "envoy.filters.http.router"}
+}
+
+func routerHTTP() []string { return []string{"envoy.filters.http.router"} }
+
 func healthyListeners() []Listener {
 	return []Listener{
 		{Name: "0.0.0.0_8080", Address: "0.0.0.0:8080", Version: "42", State: "active",
-			Chains: []Chain{{Filters: hcm}}},
+			Chains: []Chain{{Filters: hcm, HTTPFilters: routerHTTP()}}},
 		{Name: "0.0.0.0_9200", Address: "0.0.0.0:9200", Version: "42", State: "active",
 			Chains: []Chain{{Filters: tcp}}},
 		{Name: "admin-static", Address: "127.0.0.1:15000", Static: true, Chains: []Chain{{Filters: tcp}}},
@@ -296,11 +333,11 @@ func degradedListeners() []Listener {
 		{Name: "virtualInbound", Address: "0.0.0.0:15006", Version: "7", State: "active",
 			Chains: []Chain{
 				{Match: map[string]any{"destination_port": 8080, "transport_protocol": "tls", "application_protocols": []string{"h2"}},
-					Filters: hcm, TLS: true},
-				{Name: "by-sni", Match: map[string]any{"server_names": []string{"a.example.com", "b.example.com"}}, Filters: hcm},
+					Filters: hcm, HTTPFilters: sidecarHTTP(), TLS: true},
+				{Name: "by-sni", Match: map[string]any{"server_names": []string{"a.example.com", "b.example.com"}}, Filters: hcm, HTTPFilters: sidecarHTTP()},
 			},
 			Default: &Chain{Filters: tcp}},
-		{Name: "0.0.0.0_8080", Address: "0.0.0.0:8080", Version: "7", State: "active", Chains: []Chain{{Filters: hcm}}},
+		{Name: "0.0.0.0_8080", Address: "0.0.0.0:8080", Version: "7", State: "active", Chains: []Chain{{Filters: hcm, HTTPFilters: routerHTTP()}}},
 		{Name: "orders-egress", Address: "10.0.2.1:5432", Version: "8", State: "warming", ServingOld: true, Chains: []Chain{{Filters: tcp}}},
 		{Name: "legacy-9090", Address: "0.0.0.0:9090", Version: "6", State: "draining", Chains: []Chain{{Filters: tcp}}},
 		{Name: "bad-update", Address: "0.0.0.0:9443", Version: "9", State: "error", ServingOld: true,

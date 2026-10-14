@@ -373,3 +373,123 @@ func TestListenerPortTolerance(t *testing.T) {
 		}
 	}
 }
+
+const hcmType = "type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager"
+
+func chainOf(t *testing.T, filters string) FilterChain {
+	t.Helper()
+	_, chains := parseListener(raw(`{"filter_chains":[{"filters":` + filters + `}]}`))
+	if len(chains) != 1 {
+		t.Fatalf("got %d chains", len(chains))
+	}
+	return chains[0]
+}
+
+func TestHTTPFiltersFromHCM(t *testing.T) {
+	c := chainOf(t, `[{"name":"envoy.filters.network.http_connection_manager","typed_config":{"@type":"`+hcmType+`","stat_prefix":"x",
+	  "http_filters":[{"name":"envoy.filters.http.cors"},{"name":"istio.stats","typed_config":{"@type":"x"}},{"name":"envoy.filters.http.router"}]}}]`)
+	if got := strings.Join(c.HTTPFilters, ","); got != "cors,istio.stats,router" {
+		t.Fatalf("HTTPFilters = %q, want names in order with envoy.filters.http. stripped", got)
+	}
+	if strings.Join(c.Filters, ",") != "http_connection_manager" {
+		t.Fatalf("sibling Filters must be unaffected: %v", c.Filters)
+	}
+}
+
+func TestHTTPFiltersKeyOffTheTypeNotTheName(t *testing.T) {
+	hf := `"http_filters":[{"name":"envoy.filters.http.router"}]`
+	for name, f := range map[string]string{
+		"hcm name, other type": `[{"name":"envoy.filters.network.http_connection_manager","typed_config":{"@type":"type.googleapis.com/some.Other","` + hf[1:] + `}}]`,
+		"hcm name, v2 type":    `[{"name":"envoy.filters.network.http_connection_manager","typed_config":{"@type":"type.googleapis.com/envoy.config.filter.network.http_connection_manager.v2.HttpConnectionManager",` + hf + `}}]`,
+		"hcm name, no type":    `[{"name":"envoy.filters.network.http_connection_manager","typed_config":{` + hf + `}}]`,
+		"type prefix only":     `[{"name":"n","typed_config":{"@type":"` + hcmType + `x",` + hf + `}}]`,
+	} {
+		if c := chainOf(t, f); len(c.HTTPFilters) != 0 {
+			t.Fatalf("%s: HTTPFilters = %v, want none", name, c.HTTPFilters)
+		}
+	}
+	// a non-HCM name with the HCM type is an HCM
+	if c := chainOf(t, `[{"name":"custom","typed_config":{"@type":"`+hcmType+`",`+hf+`}}]`); strings.Join(c.HTTPFilters, ",") != "router" {
+		t.Fatalf("the @type decides: %v", c.HTTPFilters)
+	}
+}
+
+func TestHTTPFiltersEdgeCases(t *testing.T) {
+	typed := func(body string) string {
+		return `[{"name":"envoy.filters.network.http_connection_manager","typed_config":{"@type":"` + hcmType + `"` + body + `}}]`
+	}
+	if c := chainOf(t, typed(``)); len(c.HTTPFilters) != 0 {
+		t.Fatalf("no http_filters: %v", c.HTTPFilters)
+	}
+	if c := chainOf(t, typed(`,"http_filters":[]`)); len(c.HTTPFilters) != 0 {
+		t.Fatalf("empty http_filters: %v", c.HTTPFilters)
+	}
+	if c := chainOf(t, typed(`,"http_filters":[{"name":"a"},{},{"typed_config":{}},{"name":""},{"name":"b"}]`)); strings.Join(c.HTTPFilters, ",") != "a,b" {
+		t.Fatalf("entries without a name are skipped: %v", c.HTTPFilters)
+	}
+	// tcp_proxy first, then the HCM: the HCM's list is used
+	two := chainOf(t, `[{"name":"envoy.filters.network.tcp_proxy","typed_config":{"@type":"x"}},
+	  {"name":"envoy.filters.network.http_connection_manager","typed_config":{"@type":"`+hcmType+`","http_filters":[{"name":"envoy.filters.http.router"}]}}]`)
+	if strings.Join(two.Filters, ",") != "tcp_proxy,http_connection_manager" || strings.Join(two.HTTPFilters, ",") != "router" {
+		t.Fatalf("%+v", two)
+	}
+	// two HCMs: the first one wins
+	both := chainOf(t, `[{"typed_config":{"@type":"`+hcmType+`","http_filters":[{"name":"first"}]}},
+	  {"typed_config":{"@type":"`+hcmType+`","http_filters":[{"name":"second"}]}}]`)
+	if strings.Join(both.HTTPFilters, ",") != "first" {
+		t.Fatalf("first HCM wins: %v", both.HTTPFilters)
+	}
+}
+
+func TestHTTPFiltersTolerateGarbage(t *testing.T) {
+	for name, f := range map[string]string{
+		"typed_config null":     `[{"name":"a","typed_config":null}]`,
+		"typed_config missing":  `[{"name":"a"}]`,
+		"typed_config string":   `[{"name":"a","typed_config":"x"}]`,
+		"typed_config array":    `[{"name":"a","typed_config":[1]}]`,
+		"@type number":          `[{"name":"a","typed_config":{"@type":5}}]`,
+		"http_filters string":   `[{"typed_config":{"@type":"` + hcmType + `","http_filters":"x"}}]`,
+		"http_filters object":   `[{"typed_config":{"@type":"` + hcmType + `","http_filters":{"name":"a"}}}]`,
+		"http_filters nulls":    `[{"typed_config":{"@type":"` + hcmType + `","http_filters":[null,1,"s",[]]}}]`,
+		"entry name wrong type": `[{"typed_config":{"@type":"` + hcmType + `","http_filters":[{"name":5}]}}]`,
+	} {
+		c := chainOf(t, f)
+		if len(c.HTTPFilters) != 0 {
+			t.Fatalf("%s: HTTPFilters = %v", name, c.HTTPFilters)
+		}
+	}
+	// wrong-typed pieces never blank sibling fields
+	_, cs := parseListener(raw(`{"filter_chains":[{"name":"keep","filter_chain_match":{"destination_port":443},
+	  "filters":[{"name":"envoy.filters.network.http_connection_manager","typed_config":{"@type":"` + hcmType + `","http_filters":"oops"}}],
+	  "transport_socket":{"name":"envoy.transport_sockets.tls"}}]}`))
+	if len(cs) != 1 || cs[0].Label != "keep" || strings.Join(cs[0].Match, " ") != "port=443" || !cs[0].TLS || strings.Join(cs[0].Filters, ",") != "http_connection_manager" {
+		t.Fatalf("sibling fields must survive: %+v", cs)
+	}
+	// a single filter with a garbage typed_config keeps its name and its siblings' names
+	c := chainOf(t, `[{"name":"envoy.filters.network.tcp_proxy","typed_config":7},{"name":"istio.stats"}]`)
+	if strings.Join(c.Filters, ",") != "tcp_proxy,istio.stats" {
+		t.Fatalf("%v", c.Filters)
+	}
+}
+
+func TestFetchHTTPFiltersFromDemo(t *testing.T) {
+	s := fetchFrom(t, demo.Degraded())
+	by := map[string]Listener{}
+	for _, l := range s.Listeners {
+		by[l.Name] = l
+	}
+	vi := by["virtualInbound"]
+	want := "cors,istio.stats,router"
+	if got := strings.Join(vi.Chains[0].HTTPFilters, ","); got != want {
+		t.Fatalf("virtualInbound #1 http filters = %q, want %q", got, want)
+	}
+	if got := strings.Join(vi.Chains[1].HTTPFilters, ","); got != want {
+		t.Fatalf("virtualInbound by-sni http filters = %q, want %q", got, want)
+	}
+	if len(vi.Chains[2].HTTPFilters) != 0 {
+		t.Fatalf("the tcp_proxy default chain has none: %v", vi.Chains[2].HTTPFilters)
+	}
+	if got := strings.Join(by["0.0.0.0_8080"].Chains[0].HTTPFilters, ","); got != "router" {
+		t.Fatalf("0.0.0.0_8080 = %q", got)
+	}
+}
