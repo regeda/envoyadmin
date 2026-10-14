@@ -116,7 +116,7 @@ func TestSetScenarioAndUpdate(t *testing.T) {
 		t.Fatal("Update must not mutate shared builder data")
 	}
 	_, body = get(t, srv.URL+"/clusters?format=json")
-	if !strings.Contains(body, `"a":false`) && !strings.Contains(body, `"zone":"z"`) {
+	if !strings.Contains(body, `"a":false`) || !strings.Contains(body, `"zone":"z"`) {
 		t.Fatal("update not visible")
 	}
 }
