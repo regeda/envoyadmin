@@ -58,6 +58,7 @@ type Cluster struct {
 	Name, Type string
 	Hosts      []Host
 	Config     ConfigInfo
+	Secrets    []SecretUse
 }
 
 func (c Cluster) HealthyCount() int {
@@ -189,6 +190,7 @@ func Fetch(ctx context.Context, c admin.Client) (Snapshot, error) {
 	} else {
 		out.Secrets = secretsFrom(scs, out.FetchedAt)
 	}
+	linkSecrets(&out)
 	return out, nil
 }
 

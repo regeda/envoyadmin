@@ -50,6 +50,7 @@ type Listener struct {
 	ServingOld    bool // a rejected (error) update with an older version still active
 	Chains        []FilterChain
 	Config        ConfigInfo
+	Secrets       []SecretUse
 }
 
 // StateText is what the UI shows: "static" for static listeners.

@@ -1,7 +1,10 @@
 package snapshot
 
 import (
+	"bytes"
+	"encoding/json"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/regeda/envoyadmin/internal/admin"
@@ -118,4 +121,86 @@ func (s Snapshot) SecretsNeedAttention() int {
 		}
 	}
 	return n
+}
+
+// secretRefs returns the sorted, de-duplicated names under every key ending in
+// sds_secret_config or sds_secret_configs. The walk is generic so it covers
+// TLS certificates, validation contexts and combined contexts, upstream and
+// downstream, without hard-coded paths. Configs with no such key are never
+// parsed: a poll over thousands of clusters stays cheap.
+func secretRefs(raw []byte) []string {
+	if !bytes.Contains(raw, []byte("sds_secret_config")) {
+		return nil
+	}
+	var doc any
+	if json.Unmarshal(raw, &doc) != nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var walk func(v any)
+	nameOf := func(v any) {
+		if m, ok := v.(map[string]any); ok {
+			if n, ok := m["name"].(string); ok && n != "" {
+				seen[n] = true
+			}
+		}
+	}
+	walk = func(v any) {
+		switch x := v.(type) {
+		case map[string]any:
+			for k, child := range x {
+				switch {
+				case strings.HasSuffix(k, "sds_secret_configs"):
+					if list, ok := child.([]any); ok {
+						for _, e := range list {
+							nameOf(e)
+						}
+					}
+				case strings.HasSuffix(k, "sds_secret_config"):
+					nameOf(child)
+				}
+				walk(child)
+			}
+		case []any:
+			for _, e := range x {
+				walk(e)
+			}
+		}
+	}
+	walk(doc)
+	out := make([]string, 0, len(seen))
+	for n := range seen {
+		out = append(out, n)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// linkSecrets fills Secret.UsedBy and the Secrets of every cluster and
+// listener from the config JSON the snapshot already holds. A referenced name
+// Envoy has not loaded is marked not loaded, unless the secrets dump failed:
+// then nothing is known and nothing is flagged.
+func linkSecrets(s *Snapshot) {
+	idx := make(map[string]int, len(s.Secrets))
+	for i := range s.Secrets {
+		idx[s.Secrets[i].Name] = i
+		s.Secrets[i].UsedBy = nil
+	}
+	uses := func(kind, name string, cfg ConfigInfo) []SecretUse {
+		var out []SecretUse
+		for _, ref := range secretRefs(cfg.JSON) {
+			i, loaded := idx[ref]
+			if loaded {
+				s.Secrets[i].UsedBy = append(s.Secrets[i].UsedBy, Ref{Kind: kind, Name: name})
+			}
+			out = append(out, SecretUse{Name: ref, Loaded: loaded || s.SecretsErr != ""})
+		}
+		return out
+	}
+	for i := range s.Clusters {
+		s.Clusters[i].Secrets = uses("cluster", s.Clusters[i].Name, s.Clusters[i].Config)
+	}
+	for i := range s.Listeners {
+		s.Listeners[i].Secrets = uses("listener", s.Listeners[i].Name, s.Listeners[i].Config)
+	}
 }

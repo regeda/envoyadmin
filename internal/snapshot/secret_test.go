@@ -109,3 +109,67 @@ func TestFetchSecretsFromDemo(t *testing.T) {
 		t.Fatal("demo certificates must show up as certificate facts")
 	}
 }
+
+func TestSecretRefsFindsEverySDSKey(t *testing.T) {
+	raw := []byte(`{"transport_socket":{"typed_config":{"common_tls_context":{
+	  "tls_certificate_sds_secret_configs":[{"name":"server-cert"},{"name":"extra"}],
+	  "combined_validation_context":{"validation_context_sds_secret_config":{"name":"mesh-ca"}}}}},
+	 "transport_socket_matches":[{"transport_socket":{"typed_config":{"common_tls_context":{
+	  "tls_certificate_sds_secret_configs":[{"name":"server-cert"}]}}}}]}`)
+	got := secretRefs(raw)
+	want := []string{"extra", "mesh-ca", "server-cert"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] {
+		t.Fatalf("refs = %v, want %v", got, want)
+	}
+}
+
+func TestSecretRefsIgnoresConfigWithoutSDS(t *testing.T) {
+	for _, raw := range []string{``, `null`, `{"name":"plain"}`, `{not json`, `{"sds_secret_configs":"oops"}`} {
+		if got := secretRefs([]byte(raw)); len(got) != 0 {
+			t.Fatalf("%q: refs = %v", raw, got)
+		}
+	}
+}
+
+func TestLinkSecrets(t *testing.T) {
+	sdsCfg := func(names ...string) ConfigInfo {
+		raw := `{"tls_certificate_sds_secret_configs":[`
+		for i, n := range names {
+			if i > 0 {
+				raw += ","
+			}
+			raw += `{"name":"` + n + `"}`
+		}
+		return ConfigInfo{JSON: []byte(raw + `]}`)}
+	}
+	s := Snapshot{
+		Secrets:   []Secret{{Name: "server-cert"}, {Name: "orphan"}},
+		Clusters:  []Cluster{{Name: "api", Config: sdsCfg("server-cert", "ghost")}, {Name: "plain"}},
+		Listeners: []Listener{{Name: "l1", Config: sdsCfg("server-cert")}},
+	}
+	linkSecrets(&s)
+	if u := s.Secrets[0].UsedBy; len(u) != 2 || u[0] != (Ref{"cluster", "api"}) || u[1] != (Ref{"listener", "l1"}) {
+		t.Fatalf("UsedBy = %+v", u)
+	}
+	if len(s.Secrets[1].UsedBy) != 0 {
+		t.Fatalf("orphan: %+v", s.Secrets[1].UsedBy)
+	}
+	api := s.Clusters[0].Secrets
+	if len(api) != 2 || api[0] != (SecretUse{"ghost", false}) || api[1] != (SecretUse{"server-cert", true}) {
+		t.Fatalf("api uses = %+v", api)
+	}
+	if len(s.Clusters[1].Secrets) != 0 {
+		t.Fatal("a cluster without SDS has no secret uses")
+	}
+}
+
+func TestLinkSecretsAssumesLoadedWhenDumpFailed(t *testing.T) {
+	s := Snapshot{
+		SecretsErr: "secrets unavailable: boom",
+		Clusters:   []Cluster{{Name: "api", Config: ConfigInfo{JSON: []byte(`{"validation_context_sds_secret_config":{"name":"ca"}}`)}}},
+	}
+	linkSecrets(&s)
+	if u := s.Clusters[0].Secrets; len(u) != 1 || !u[0].Loaded {
+		t.Fatalf("unknown must not be flagged not loaded: %+v", u)
+	}
+}
