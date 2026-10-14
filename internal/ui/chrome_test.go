@@ -11,7 +11,7 @@ import (
 )
 
 func TestHeaderNormal(t *testing.T) {
-	h := renderHeader(100, false, "● connected  http://x", "Envoy 1.31.0 · updated 2s ago", "Clusters (3)")
+	h := renderHeader(100, false, "● connected  http://x", "Envoy 1.31.0 · updated 2s ago", []headerTab{{Label: "Clusters (3)", Active: true}})
 	lines := strings.Split(h, "\n")
 	if len(lines) != 4 {
 		t.Fatalf("lines=%d", len(lines))
@@ -36,7 +36,7 @@ func TestHeaderNormal(t *testing.T) {
 }
 
 func TestHeaderCompact(t *testing.T) {
-	h := renderHeader(80, true, "● connected  http://x", "row2 ignored", "Clusters (3)")
+	h := renderHeader(80, true, "● connected  http://x", "row2 ignored", []headerTab{{Label: "Clusters (3)", Active: true}})
 	lines := strings.Split(h, "\n")
 	if len(lines) != 2 || !strings.Contains(lines[0], "txenvoy") || !strings.Contains(lines[1], "Clusters (3)") {
 		t.Fatalf("%q", h)
@@ -177,7 +177,7 @@ func TestJoinEndsNeverExceedsWidth(t *testing.T) {
 func TestHeaderNeverExceedsWidthWhenSmall(t *testing.T) {
 	for _, w := range []int{1, 5, 10, 20, 30, 45} {
 		for _, compact := range []bool{false, true} {
-			h := renderHeader(w, compact, "● connected  http://localhost:15000", "Envoy 1.31.0 · updated 2s ago", "Clusters (3)")
+			h := renderHeader(w, compact, "● connected  http://localhost:15000", "Envoy 1.31.0 · updated 2s ago", []headerTab{{Label: "Clusters (3)", Active: true}})
 			want := 4
 			if compact {
 				want = 2
@@ -266,5 +266,39 @@ func TestOverlayBannerTallerThanFrame(t *testing.T) {
 	got := strings.Split(overlay("l1\nl2", []string{"B1", "B2", "B3"}), "\n")
 	if len(got) != 3 || got[0] != "B1" || got[1] != "B2" || got[2] != "B3" {
 		t.Fatalf("banner rows beyond the frame are appended: %q", got)
+	}
+}
+func TestHeaderTabRowShowsAllTabs(t *testing.T) {
+	tabs := []headerTab{{Label: "Clusters (6)", Active: true}, {Label: "Listeners (!)", Warn: true}}
+	for _, compact := range []bool{false, true} {
+		h := renderHeader(100, compact, "● connected", "row2", tabs)
+		lines := strings.Split(h, "\n")
+		tabLine := lines[len(lines)-1]
+		if !strings.Contains(tabLine, "Clusters (6)") || !strings.Contains(tabLine, "Listeners (!)") ||
+			strings.Index(tabLine, "Clusters (6)") > strings.Index(tabLine, "Listeners (!)") {
+			t.Fatalf("compact=%v: %q", compact, tabLine)
+		}
+		for _, l := range lines {
+			if lipgloss.Width(l) > 100 {
+				t.Fatalf("wide line %q", l)
+			}
+		}
+	}
+	narrow := renderHeader(20, false, "x", "y", tabs)
+	for _, l := range strings.Split(narrow, "\n") {
+		if lipgloss.Width(l) > 20 {
+			t.Fatalf("narrow: %q", l)
+		}
+	}
+}
+
+func TestActiveHeaderTabDiffersFromInactive(t *testing.T) {
+	prev := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI)
+	t.Cleanup(func() { lipgloss.SetColorProfile(prev) })
+	a := renderHeader(100, true, "", "", []headerTab{{Label: "One", Active: true}, {Label: "Two"}})
+	b := renderHeader(100, true, "", "", []headerTab{{Label: "One"}, {Label: "Two", Active: true}})
+	if a == b {
+		t.Fatal("the active tab must be styled differently from an inactive one")
 	}
 }

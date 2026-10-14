@@ -35,8 +35,31 @@ func joinEnds(left, right string, width int) string {
 	return left + strings.Repeat(" ", gap) + right
 }
 
-func renderHeader(width int, compact bool, conn1, conn2, tab string) string {
-	tabLine := trunc(" "+lipgloss.NewStyle().Bold(true).Reverse(true).Render(" "+tab+" "), width)
+// headerTab is one entry of the tab row.
+type headerTab struct {
+	Label  string
+	Active bool
+	Warn   bool
+}
+
+func renderTabRow(width int, tabs []headerTab) string {
+	var parts []string
+	for _, t := range tabs {
+		label := " " + t.Label + " "
+		switch {
+		case t.Active:
+			parts = append(parts, lipgloss.NewStyle().Bold(true).Reverse(true).Render(label))
+		case t.Warn:
+			parts = append(parts, warnStyle.Render(label))
+		default:
+			parts = append(parts, dimStyle.Render(label))
+		}
+	}
+	return trunc(" "+strings.Join(parts, " "), width)
+}
+
+func renderHeader(width int, compact bool, conn1, conn2 string, tabs []headerTab) string {
+	tabLine := renderTabRow(width, tabs)
 	if compact {
 		return joinEnds(logoStyle.Render("txenvoy"), conn1, width) + "\n" + tabLine
 	}

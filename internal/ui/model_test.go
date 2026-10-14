@@ -179,26 +179,26 @@ func TestSelectionDrivesDetailAndKeys(t *testing.T) {
 		t.Fatal(m.View())
 	}
 	m = send(m, key("down"))
-	if it, _ := m.list.Selected(); it.Key() != "beta" {
+	if it, _ := m.cur().list.Selected(); it.Key() != "beta" {
 		t.Fatal("down selects beta")
 	}
-	if !strings.Contains(m.detail.View(), "beta") {
+	if !strings.Contains(m.cur().detail.View(), "beta") {
 		t.Fatal("detail follows the selection")
 	}
 	m = send(m, key("c"))
-	if m.detail.tab != tabConfig {
+	if m.cur().detail.tab != tabConfig {
 		t.Fatal("c opens config")
 	}
 	m = send(m, key("e"))
-	if m.detail.tab != tabOverview {
+	if m.cur().detail.tab != tabOverview {
 		t.Fatal("e opens endpoints")
 	}
-	m = send(m, key("tab"))
+	m = send(m, key("enter"))
 	if m.focus != focusDetail {
-		t.Fatal("tab moves focus")
+		t.Fatal("enter moves focus")
 	}
 	m = send(m, key("/"))
-	if m.focus != focusList || !m.list.filtering {
+	if m.focus != focusList || !m.cur().list.filtering {
 		t.Fatal("/ focuses the list filter")
 	}
 }
@@ -337,9 +337,9 @@ func TestSelectedClusterDisappearing(t *testing.T) {
 	m = send(m, snapshotMsg{snap: snap(cl("alpha", 1, 1), cl("beta", 1, 1), cl("gamma", 1, 1))})
 	m = send(m, key("down"))
 	m = send(m, snapshotMsg{snap: snap(cl("alpha", 1, 1), cl("gamma", 1, 1))})
-	it, ok := m.list.Selected()
-	if !ok || m.detail.item.Key() != it.Key() || it.Key() == "beta" {
-		t.Fatalf("detail=%q list=%q", m.detail.item.Key(), it.Key())
+	it, ok := m.cur().list.Selected()
+	if !ok || m.cur().detail.item.Key() != it.Key() || it.Key() == "beta" {
+		t.Fatalf("detail=%q list=%q", m.cur().detail.item.Key(), it.Key())
 	}
 	m = send(m, snapshotMsg{snap: snap()})
 	if !strings.Contains(m.View(), "no cluster selected") {

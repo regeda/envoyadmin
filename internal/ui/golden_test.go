@@ -112,5 +112,5 @@ func TestGoldenErrorTruncated(t *testing.T) {
 
 func TestGoldenDetailFocus(t *testing.T) {
 	m := loaded(t, demo.Degraded(), 120, 30)
-	golden(t, send(m, key("tab")))
+	golden(t, send(m, key("enter")))
 }

@@ -68,8 +68,8 @@ type Model struct {
 	focus         focus
 	help          bool
 	width, height int
-	list          listPane
-	detail        detailPane
+	views         [kindCount]view // an array, so a Model copy never aliases another's views
+	active        resourceKind
 }
 
 // New returns a model whose first fetch is already considered in flight; Init
@@ -81,12 +81,15 @@ func New(o Options) Model {
 	if o.Ctx == nil {
 		o.Ctx = context.Background()
 	}
-	m := Model{opts: o, inflight: true, state: stateConnecting, list: newListPane(), detail: newDetailPane(o.Color)}
-	m.list.SetWaiting(true)
-	m.list.SetEmptyText("no clusters")
-	m.detail.SetEmptyText("no cluster selected")
+	m := Model{opts: o, inflight: true, state: stateConnecting}
+	for k := resourceKind(0); k < kindCount; k++ {
+		m.views[k] = newView(resources[k], o.Color)
+	}
 	return m
 }
+
+// cur is the active view (a pointer into this copy of the model).
+func (m *Model) cur() *view { return &m.views[m.active] }
 
 func (m Model) fetchCmd() tea.Cmd {
 	fetch, ctx := m.opts.Fetch, m.opts.Ctx
@@ -118,13 +121,18 @@ func (m Model) listWidth() int { return max(m.width*30/100, 28) }
 func (m *Model) layout() {
 	listW := m.listWidth()
 	detailW := max(m.width-listW-1, 1)
-	m.list.SetSize(listW, m.paneHeight())
-	m.detail.SetSize(detailW, m.paneHeight())
+	for k := range m.views {
+		m.views[k].list.SetSize(listW, m.paneHeight())
+		m.views[k].detail.SetSize(detailW, m.paneHeight())
+	}
 }
 
-func (m *Model) syncDetail() {
-	it, ok := m.list.Selected()
-	m.detail.SetItem(it, ok)
+func (m *Model) syncDetails() {
+	for k := range m.views {
+		v := &m.views[k]
+		it, ok := v.list.Selected()
+		v.detail.SetItem(it, ok)
+	}
 }
 
 func (m Model) bannerVisible() bool {
@@ -136,7 +144,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.layout()
-		m.syncDetail()
+		m.syncDetails()
 		return m, nil
 
 	case tickMsg:
@@ -160,9 +168,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.lastOK.IsZero() {
 			m.lastOK = m.opts.Clock()
 		}
-		m.list.SetWaiting(false)
-		m.list.SetItems(clusterItems(msg.snap.Clusters))
-		m.syncDetail()
+		for k := resourceKind(0); k < kindCount; k++ {
+			v := &m.views[k]
+			v.list.SetWaiting(false)
+			v.list.SetNotice(resources[k].notice(msg.snap))
+			v.list.SetItems(resources[k].items(msg.snap))
+		}
+		m.syncDetails()
 		return m, nil
 
 	case tea.KeyMsg:
@@ -171,20 +183,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// setFocus moves the keyboard focus and tells both panes so they can show it.
+// setFocus moves the keyboard focus; only the active view shows it.
 func (m *Model) setFocus(f focus) {
 	m.focus = f
-	m.list.SetFocused(f == focusList)
-	m.detail.SetFocused(f == focusDetail)
+	for k := range m.views {
+		active := resourceKind(k) == m.active
+		m.views[k].list.SetFocused(!active || f == focusList)
+		m.views[k].detail.SetFocused(active && f == focusDetail)
+	}
+}
+
+func (m *Model) switchTo(k resourceKind) {
+	m.active = k
+	m.setFocus(focusList)
 }
 
 func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if k.String() == "ctrl+c" {
 		return m, tea.Quit
 	}
-	if m.focus == focusList && m.list.filtering {
-		m.list.HandleKey(k)
-		m.syncDetail()
+	if m.focus == focusList && m.cur().list.filtering {
+		switch k.String() {
+		case "tab", "shift+tab":
+			return m, nil // finish the filter first
+		}
+		m.cur().list.HandleKey(k)
+		m.syncDetails()
 		return m, nil
 	}
 	switch k.String() {
@@ -202,33 +226,35 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "?":
 		m.help = !m.help
 	case "tab":
-		if m.focus == focusList {
-			m.setFocus(focusDetail)
-		} else {
-			m.setFocus(focusList)
-		}
+		m.switchTo((m.active + 1) % kindCount)
 	case "shift+tab":
-		m.setFocus(focusList)
-	case "c":
-		m.detail.SetTab(tabConfig)
-	case "e":
-		m.detail.SetTab(tabOverview)
+		m.switchTo((m.active + kindCount - 1) % kindCount)
+	case "enter":
+		if m.focus == focusList {
+			if _, ok := m.cur().list.Selected(); ok {
+				m.setFocus(focusDetail)
+			}
+		}
 	case "esc":
 		if m.focus == focusDetail {
 			m.setFocus(focusList)
 		} else {
-			m.list.HandleKey(k) // clears an active filter
-			m.syncDetail()
+			m.cur().list.HandleKey(k) // clears an active filter
+			m.syncDetails()
 		}
+	case "c":
+		m.cur().detail.SetTab(tabConfig)
+	case "o", "e":
+		m.cur().detail.SetTab(tabOverview)
 	default:
 		if k.String() == "/" {
 			m.setFocus(focusList)
 		}
 		if m.focus == focusList {
-			m.list.HandleKey(k)
-			m.syncDetail()
+			m.cur().list.HandleKey(k)
+			m.syncDetails()
 		} else {
-			m.detail.HandleKey(k)
+			m.cur().detail.HandleKey(k)
 		}
 	}
 	return m, nil
@@ -269,17 +295,17 @@ func (m Model) bannerText() string {
 }
 
 func (m Model) statusLine() string {
-	left := fmt.Sprintf(" %d clusters · %d unhealthy", len(m.snap.Clusters), m.snap.UnhealthyClusters())
+	left := " " + resources[m.active].summary(m.snap)
 	if m.inflight {
 		left += " ↻"
 	}
-	right := "? help · q quit · / filter · c config · e endpoints · r refresh "
+	right := "? help · q quit · tab switch · enter details · / filter · c config · o overview · r refresh "
 	if m.focus == focusDetail {
 		left += " · focus: detail"
-		right = "tab/esc back to list · ↑↓ scroll · c config · e endpoints · q quit "
+		right = "esc back · ↑↓ scroll · c config · o overview · q quit "
 	}
 	if m.help {
-		right = "↑↓/jk move · / filter · tab/esc switch focus · c config · e endpoints · r refresh · x dismiss · q quit "
+		right = "tab switch · enter details · esc back · ↑↓/jk move · / filter · c config · o overview · r refresh · x dismiss · q quit "
 	}
 	return renderStatus(m.width, left, right)
 }
@@ -288,7 +314,7 @@ func (m Model) statusLine() string {
 // JoinHorizontal keeps the columns aligned.
 func (m Model) detailBlock() string {
 	w := max(m.width-m.listWidth()-1, 1)
-	rows := strings.Split(m.detail.View(), "\n")
+	rows := strings.Split(m.views[m.active].detail.View(), "\n")
 	for i, r := range rows {
 		rows[i] = pad(trunc(r, w), w)
 	}
@@ -304,11 +330,15 @@ func (m Model) View() string {
 		return msg
 	}
 	c1, c2 := m.connLines()
-	header := renderHeader(m.width, m.height < compactHeight, c1, c2, fmt.Sprintf("Clusters (%d)", len(m.snap.Clusters)))
+	tabs := make([]headerTab, kindCount)
+	for k := resourceKind(0); k < kindCount; k++ {
+		tabs[k] = headerTab{Label: resources[k].tabLabel(m.snap), Active: k == m.active, Warn: resources[k].warn(m.snap)}
+	}
+	header := renderHeader(m.width, m.height < compactHeight, c1, c2, tabs)
 
 	paneH := m.paneHeight()
 	sep := dimStyle.Render(strings.TrimSuffix(strings.Repeat("│\n", paneH), "\n"))
-	panes := lipgloss.JoinHorizontal(lipgloss.Top, m.list.View(), sep, m.detailBlock())
+	panes := lipgloss.JoinHorizontal(lipgloss.Top, m.views[m.active].list.View(), sep, m.detailBlock())
 
 	frame := header + "\n" + panes + "\n" + m.statusLine()
 	if m.bannerVisible() {
