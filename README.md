@@ -11,7 +11,7 @@ a list on the left, details on the right, and a header showing the connection st
 - A failing listener dump never raises the error banner: the tab reads `Listeners (!)` with an inline message and Clusters keep working.
 - Secrets tab: every secret Envoy has loaded, with state (`●` active or static, `◐` warming, `✗` certificate expired), name and `version_info`; warming and expired ones sort first. `/` fuzzy-filters by name.
 - Secret Overview (`o`): kind (`tls_certificate`, `validation_context`, ...), version, last updated, the certificate's serial, SANs and expiry (read from the public certificate in the secrets dump), and the clusters and listeners that reference the secret. Secret content is never fetched or shown; the Config tab (`c`) only says so. The cluster and listener Overviews list the secrets they use, and mark one Envoy has not loaded as `(not loaded)`.
-- A failing secrets dump never raises the error banner: the tab reads `Secrets (!)` with an inline message, and a secret whose certificate cannot be read is listed without certificate details.
+- A failing secrets dump never raises the error banner: the tab reads `Secrets (!)` with an inline message (the label also shows `(!)` when a secret is warming or has an expired certificate), and a secret whose certificate cannot be read is listed without certificate details.
 - Auto-refresh; the UI never blocks on HTTP. Errors appear as a red banner over the top of the screen and clear when Envoy answers again.
 
 ## Install and run

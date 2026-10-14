@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/exp/teatest"
 
 	"github.com/regeda/envoyadmin/internal/admin"
@@ -22,6 +23,26 @@ import (
 func waitFor(t *testing.T, tm *teatest.TestModel, want ...string) {
 	t.Helper()
 	teatest.WaitFor(t, tm.Output(), func(b []byte) bool {
+		for _, w := range want {
+			if !bytes.Contains(b, []byte(w)) {
+				return false
+			}
+		}
+		return true
+	},
+		teatest.WithDuration(5*time.Second), teatest.WithCheckInterval(20*time.Millisecond))
+}
+
+// waitForNoBanner is waitFor that fails at once when the output shows the
+// connection banner or a disconnected header.
+func waitForNoBanner(t *testing.T, tm *teatest.TestModel, want ...string) {
+	t.Helper()
+	teatest.WaitFor(t, tm.Output(), func(b []byte) bool {
+		for _, bad := range []string{"disconnected", "retrying every"} {
+			if bytes.Contains(b, []byte(bad)) {
+				t.Fatalf("a secrets failure raised the banner (%q):\n%s", bad, b)
+			}
+		}
 		for _, w := range want {
 			if !bytes.Contains(b, []byte(w)) {
 				return false
@@ -145,7 +166,10 @@ func TestEndToEndSecretsTabAndIsolatedFailure(t *testing.T) {
 	waitFor(t, tm, "server-cert", "rotating-cert", "bootstrap-cert")
 
 	fake.Inject(demo.Fault{Status: 500, Match: "secrets"})
-	waitFor(t, tm, "secrets unavailable") // the label stays Secrets (!), so the diff stream does not repeat it
+	waitForNoBanner(t, tm, "secrets unavailable")      // the label stays Secrets (!), so the diff stream does not repeat it
+	time.Sleep(300 * time.Millisecond)                 // let a few refreshes fail
+	tm.Send(tea.WindowSizeMsg{Width: 120, Height: 30}) // force a full repaint, header included
+	waitForNoBanner(t, tm, "secrets unavailable", "connected")
 
 	fake.Inject(demo.Fault{})
 	// "secrets unavailable" is only replaced by the list after a successful fetch

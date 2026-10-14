@@ -66,7 +66,7 @@ func TestSecretsResourceChrome(t *testing.T) {
 	if r.tabLabel(s) != "Secrets (!)" || !r.warn(s) {
 		t.Fatalf("warming secret must warn: %q", r.tabLabel(s))
 	}
-	if got := r.summary(s); got != "2 secrets · 1 need attention" {
+	if got := r.summary(s); got != "2 secrets · 1 to check" {
 		t.Fatalf("summary = %q", got)
 	}
 	s.Secrets = s.Secrets[1:]

@@ -70,7 +70,7 @@ var resources = [kindCount]resource{
 			if s.SecretsErr != "" {
 				return "secrets unavailable"
 			}
-			return fmt.Sprintf("%s · %d need attention", plural(len(s.Secrets), "secret"), s.SecretsNeedAttention())
+			return fmt.Sprintf("%s · %d to check", plural(len(s.Secrets), "secret"), s.SecretsNeedAttention())
 		},
 		notice:      func(s snapshot.Snapshot) string { return s.SecretsErr },
 		warn:        func(s snapshot.Snapshot) bool { return s.SecretsErr != "" || s.SecretsNeedAttention() > 0 },

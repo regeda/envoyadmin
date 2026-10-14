@@ -186,7 +186,7 @@ func TestGoldenSecretOverviewActiveCert(t *testing.T) {
 
 func TestSecretOverviewActiveCertListsUsers(t *testing.T) {
 	v := activeServerCertOverview(t).View()
-	for _, want := range []string{"Used by", "api-gateway", "0.0.0.0_8080"} {
+	for _, want := range []string{"Used by", "api-gateway", "0.0.0.0_8080", "a1b2c", "api.example.com", "Expires       2026-12-15"} {
 		if !strings.Contains(v, want) {
 			t.Fatalf("overview of the active server-cert lacks %q:\n%s", want, v)
 		}
