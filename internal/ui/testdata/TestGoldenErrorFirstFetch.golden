@@ -1,6 +1,6 @@
  ✗ disconnected · http://envoy:15000 · never connected                                                                  
  GET /clusters: dial tcp 127.0.0.1:15000: connect: connection refused                                                   
- (retrying every 1ms)                                                                                                   
+ (retrying every 3s)                                                                                                    
   Clusters (0) 
 / to filter                               │no cluster selected                                                          
 waiting for Envoy…                        │                                                                             

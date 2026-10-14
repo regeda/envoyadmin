@@ -23,6 +23,13 @@ func init() {
 	lipgloss.SetColorProfile(termenv.Ascii)
 }
 
+// goldenOpts is testOpts with a realistic refresh so banners read as real ones.
+func goldenOpts() Options {
+	o := testOpts(nil)
+	o.Config.Refresh = 3 * time.Second
+	return o
+}
+
 func fetchSnap(t *testing.T, sc demo.Scenario) snapshot.Snapshot {
 	t.Helper()
 	srv := httptest.NewServer(demo.NewServer(sc))
@@ -41,7 +48,7 @@ func fetchSnap(t *testing.T, sc demo.Scenario) snapshot.Snapshot {
 
 func loaded(t *testing.T, sc demo.Scenario, w, h int) Model {
 	t.Helper()
-	m := sized(New(testOpts(nil)), w, h)
+	m := sized(New(goldenOpts()), w, h)
 	return send(m, snapshotMsg{snap: fetchSnap(t, sc)})
 }
 
@@ -80,10 +87,10 @@ func TestGoldenConfigTabStatic(t *testing.T) {
 	golden(t, send(m, key("c")))
 }
 
-func TestGoldenConnecting(t *testing.T) { golden(t, sized(New(testOpts(nil)), 120, 30)) }
+func TestGoldenConnecting(t *testing.T) { golden(t, sized(New(goldenOpts()), 120, 30)) }
 
 func TestGoldenErrorFirstFetch(t *testing.T) {
-	m := sized(New(testOpts(nil)), 120, 30)
+	m := sized(New(goldenOpts()), 120, 30)
 	golden(t, send(m, snapshotMsg{err: errors.New("GET /clusters: dial tcp 127.0.0.1:15000: connect: connection refused")}))
 }
 

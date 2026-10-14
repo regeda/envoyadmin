@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/regeda/txenvoy/internal/demo"
 	"github.com/regeda/txenvoy/internal/snapshot"
 )
 
@@ -181,11 +182,11 @@ func TestFlagCellOverflowMarker(t *testing.T) {
 func TestFlagCellTruncatesFirstFlag(t *testing.T) {
 	fl := []string{"FAILED_ACTIVE_HC", "EDS_STATUS_UNHEALTHY"}
 	got := strings.TrimRight(ansiStrip(flagCell(fl, 12)), " ")
-	if got != "FAILED_AC +1" {
+	if got != "FAILED_A… +1" {
 		t.Fatalf("got %q", got)
 	}
 	got = strings.TrimRight(ansiStrip(flagCell(fl[:1], 12)), " ")
-	if got != "FAILED_ACTIV" {
+	if got != "FAILED_ACTI…" {
 		t.Fatalf("got %q", got)
 	}
 }
@@ -203,8 +204,15 @@ func typicalCluster() snapshot.Cluster {
 
 func TestEndpointsLayoutFitsWithoutClip(t *testing.T) {
 	cols := []string{"ADDRESS", "FLAGS", "WEIGHT", "ZONE", "RQ_ACTIVE", "RQ_ERR", "CX_ACTIVE"}
-	for _, w := range []int{77, 100} {
-		lines := endpointLines(typicalCluster(), w, 8, 0)
+	one := snapshot.Cluster{Name: "o", Hosts: []snapshot.Host{
+		{Address: "10.0.1.5:8080", Zone: "eu-west-1a", Weight: 1, Flags: []string{"FAILED_ACTIVE_HC"}}}}
+	// all seven columns whenever the pane holds them at their needed widths
+	for _, tc := range []struct {
+		c snapshot.Cluster
+		w int
+	}{{one, 77}, {typicalCluster(), 100}} {
+		w := tc.w
+		lines := endpointLines(tc.c, w, 8, 0)
 		for _, col := range cols {
 			if !strings.Contains(lines[1], col) {
 				t.Fatalf("w=%d header missing %s: %q", w, col, lines[1])
@@ -214,7 +222,7 @@ func TestEndpointsLayoutFitsWithoutClip(t *testing.T) {
 		if hw > w {
 			t.Fatalf("w=%d unclipped header width %d", w, hw)
 		}
-		for _, l := range lines[2:5] {
+		for _, l := range lines[2 : 2+len(tc.c.Hosts)] {
 			if lipgloss.Width(l) != hw {
 				t.Fatalf("w=%d row width %d != header %d: %q", w, lipgloss.Width(l), hw, l)
 			}
@@ -222,12 +230,15 @@ func TestEndpointsLayoutFitsWithoutClip(t *testing.T) {
 	}
 }
 
-func TestEndpointsDropsZoneWhenNarrow(t *testing.T) {
+func TestEndpointsDropsZoneThenWeightWhenNarrow(t *testing.T) {
 	lines := endpointLines(typicalCluster(), 60, 8, 0)
 	if strings.Contains(lines[1], "ZONE") || strings.Contains(lines[2], "eu-west") {
 		t.Fatalf("zone should be dropped: %q", lines[1])
 	}
-	for _, col := range []string{"ADDRESS", "FLAGS", "WEIGHT", "RQ_ACTIVE", "RQ_ERR", "CX_ACTIVE"} {
+	if strings.Contains(lines[1], "WEIGHT") {
+		t.Fatalf("weight should be dropped before flags are squeezed: %q", lines[1])
+	}
+	for _, col := range []string{"ADDRESS", "FLAGS", "RQ_ACTIVE", "RQ_ERR", "CX_ACTIVE"} {
 		if !strings.Contains(lines[1], col) {
 			t.Fatalf("header missing %s: %q", col, lines[1])
 		}
@@ -239,6 +250,51 @@ func TestEndpointsDropsZoneWhenNarrow(t *testing.T) {
 	for _, l := range lines[2:5] {
 		if lipgloss.Width(l) != hw {
 			t.Fatalf("row width %d != %d: %q", lipgloss.Width(l), hw, l)
+		}
+	}
+}
+
+// The degraded demo at 120x30 (77-cell detail pane): no flag name is cut.
+func TestEndpointsFullFlagNamesAtDefaultSize(t *testing.T) {
+	snap := fetchSnap(t, demo.Degraded())
+	seen := map[string]bool{}
+	for _, c := range snap.Clusters {
+		out := ansiStrip(strings.Join(endpointLines(c, 77, 12, 0)[1:], "\n"))
+		for _, h := range c.Hosts {
+			for i, f := range h.Flags {
+				if i > 0 {
+					break // later flags may fold into +N
+				}
+				if !strings.Contains(out, f) {
+					t.Fatalf("%s: first flag %q not fully visible:\n%s", c.Name, f, out)
+				}
+				seen[f] = true
+			}
+		}
+		if strings.Contains(out, "…") {
+			t.Fatalf("%s: unexpected truncation:\n%s", c.Name, out)
+		}
+	}
+	if !seen["FAILED_OUTLIER_CHECK"] || !seen["FAILED_ACTIVE_HC"] {
+		t.Fatalf("demo no longer exercises both flags: %v", seen)
+	}
+}
+
+// At the 80-col minimum (51-cell pane) a cut flag ends in an ellipsis and the
+// numeric columns survive.
+func TestEndpointsTruncatedFlagShowsEllipsisAtMinimumWidth(t *testing.T) {
+	lines := endpointLines(typicalCluster(), 51, 8, 0)
+	for _, col := range []string{"RQ_ACTIVE", "RQ_ERR", "CX_ACTIVE"} {
+		if !strings.Contains(lines[1], col) {
+			t.Fatalf("header lost %s: %q", col, lines[1])
+		}
+	}
+	if !strings.Contains(ansiStrip(lines[2]), "…") {
+		t.Fatalf("truncated flag has no ellipsis: %q", lines[2])
+	}
+	for _, l := range lines[1:5] {
+		if lipgloss.Width(l) > 51 {
+			t.Fatalf("width %d: %q", lipgloss.Width(l), l)
 		}
 	}
 }

@@ -57,7 +57,14 @@ func TestEndToEndFailureAndRecovery(t *testing.T) {
 	waitFor(t, tm, "✗ disconnected", "503")
 
 	fake.Inject(demo.Fault{})
-	waitFor(t, tm, "● connected")
+	// A frame with "● connected" that no longer mentions the error. Output is
+	// consumed as read, so "503" can only show up again if the banner (or its
+	// text) was still being drawn; the first "● connected" frame after
+	// recovery is the one that must be clear of it. Fails if the banner is
+	// never cleared (checked by mutation: not clearing m.err).
+	teatest.WaitFor(t, tm.Output(), func(b []byte) bool {
+		return bytes.Contains(b, []byte("● connected")) && !bytes.Contains(b, []byte("503"))
+	}, teatest.WithDuration(5*time.Second), teatest.WithCheckInterval(20*time.Millisecond))
 
 	tm.Send(key("q"))
 	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))

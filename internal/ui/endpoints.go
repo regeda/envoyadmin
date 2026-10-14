@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/regeda/txenvoy/internal/snapshot"
 )
@@ -19,8 +20,9 @@ const (
 	rqActiveW     = 9
 	rqErrW        = 6
 	cxActiveW     = 9
-	minFlagsW     = 14 // below this the ZONE column is dropped
-	numericFixedW = weightW + rqActiveW + rqErrW + cxActiveW
+	minFlagsW     = 5  // header "FLAGS"
+	maxFlagsW     = 38 // widest flags column we ever ask for
+	numericFixedW = rqActiveW + rqErrW + cxActiveW
 )
 
 func sortedHosts(hs []snapshot.Host) []snapshot.Host {
@@ -43,6 +45,25 @@ func flagStyle(f string) lipgloss.Style {
 		return badStyle
 	}
 	return warnStyle
+}
+
+// truncEllipsis cuts s to at most w cells, ending with "…" when it was cut.
+func truncEllipsis(s string, w int) string {
+	if w <= 0 {
+		return ""
+	}
+	return ansi.Truncate(s, w, "…")
+}
+
+// flagsNeeded is the width that shows every host's flags in full.
+func flagsNeeded(hosts []snapshot.Host) int {
+	need := minFlagsW
+	for _, h := range hosts {
+		if len(h.Flags) > 0 {
+			need = max(need, lipgloss.Width(strings.Join(h.Flags, " ")))
+		}
+	}
+	return min(need, maxFlagsW)
 }
 
 func digits(n int) int { return len(strconv.Itoa(n)) }
@@ -79,7 +100,7 @@ func flagCell(flags []string, width int) string {
 			if room < 1 { // no space for a marker beside even one cell of the flag
 				room, remaining = width, 0
 			}
-			parts = append(parts, flagStyle(f).Render(trunc(f, room)))
+			parts = append(parts, flagStyle(f).Render(truncEllipsis(f, room)))
 		} else {
 			remaining = len(flags) - i
 		}
@@ -106,17 +127,37 @@ func endpointLines(c snapshot.Cluster, w, h, scroll int) []string {
 	for _, hst := range hosts {
 		addrW = max(addrW, min(lipgloss.Width(hst.Address), maxAddrW))
 	}
-	// columns: ADDRESS FLAGS WEIGHT [ZONE] RQ_ACTIVE RQ_ERR CX_ACTIVE
-	showZone := true
-	flagsW := w - (addrW + zoneW + numericFixedW + 6)
-	if flagsW < minFlagsW {
-		showZone = false
-		flagsW = w - (addrW + numericFixedW + 5)
+	// columns: ADDRESS FLAGS [WEIGHT] [ZONE] RQ_ACTIVE RQ_ERR CX_ACTIVE
+	// FLAGS gets what the hosts need; ZONE, then WEIGHT, are dropped before
+	// FLAGS is squeezed.
+	need := flagsNeeded(hosts)
+	showZone, showWeight := true, true
+	flagsW := 0
+	for _, opt := range [][2]bool{{true, true}, {false, true}, {false, false}} {
+		showZone, showWeight = opt[0], opt[1]
+		cols := 5 // address, flags, three numeric
+		fixed := addrW + numericFixedW
+		if showZone {
+			cols++
+			fixed += zoneW
+		}
+		if showWeight {
+			cols++
+			fixed += weightW
+		}
+		flagsW = w - fixed - (cols - 1)
+		if flagsW >= need {
+			flagsW = need
+			break
+		}
 	}
 	flagsW = max(flagsW, 1)
 
 	row := func(addr, flags, weight, zone, rqa, rqe, cxa string) string {
-		cells := []string{pad(trunc(addr, addrW), addrW), flags, pad(weight, weightW)}
+		cells := []string{pad(trunc(addr, addrW), addrW), flags}
+		if showWeight {
+			cells = append(cells, pad(weight, weightW))
+		}
 		if showZone {
 			cells = append(cells, pad(trunc(zone, zoneW), zoneW))
 		}
