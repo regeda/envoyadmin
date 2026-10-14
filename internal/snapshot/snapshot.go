@@ -97,6 +97,8 @@ type Snapshot struct {
 	Clusters     []Cluster
 	Listeners    []Listener
 	ListenersErr string // "listeners unavailable: <reason>" when the dump failed
+	Secrets      []Secret
+	SecretsErr   string // "secrets unavailable: <reason>" when the dump failed
 	Version      string
 	FetchedAt    time.Time
 }
@@ -139,11 +141,14 @@ func Fetch(ctx context.Context, c admin.Client) (Snapshot, error) {
 		info         *adminv3.ServerInfo
 		lcs          []admin.ListenerConfig
 		listenersErr error
+		scs          []admin.SecretConfig
+		secretsErr   error
 	)
-	wg.Add(3)
+	wg.Add(4)
 	go func() { defer wg.Done(); cfgs, cfgErr = c.ClusterConfigs(ctx) }()
 	go func() { defer wg.Done(); info, _ = c.ServerInfo(ctx) }()
 	go func() { defer wg.Done(); lcs, listenersErr = c.ListenerConfigs(ctx) }()
+	go func() { defer wg.Done(); scs, secretsErr = c.SecretConfigs(ctx) }()
 	wg.Wait()
 
 	cfgByName := make(map[string]admin.ClusterConfig, len(cfgs))
@@ -179,6 +184,11 @@ func Fetch(ctx context.Context, c admin.Client) (Snapshot, error) {
 		out.Listeners = append(out.Listeners, listenerFrom(lc))
 	}
 	sortListeners(out.Listeners)
+	if secretsErr != nil {
+		out.SecretsErr = "secrets unavailable: " + secretsErr.Error()
+	} else {
+		out.Secrets = secretsFrom(scs, out.FetchedAt)
+	}
 	return out, nil
 }
 
