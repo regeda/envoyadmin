@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -294,8 +296,9 @@ func TestLongLineIsOneRowClippedAtBoundary(t *testing.T) {
 	if w := lipgloss.Width(rows[2]); w != 30 {
 		t.Fatalf("clipped row width %d, want 30", w)
 	}
-	if n := strings.Count(rows[2], "v"); n != 30-len("key: ") {
-		t.Fatalf("v count %d: tail of long value leaked", n)
+	gutter := lipgloss.Width(yamlGutter(1, c.Config.YAML)) // "<n> │ " in front of every line
+	if n := strings.Count(rows[2], "v"); n != 30-gutter-len("key: ") {
+		t.Fatalf("v count %d: tail of long value leaked (gutter %d)", n, gutter)
 	}
 	// every later line is reachable by scrolling
 	for i := 0; i < 10; i++ {
@@ -317,7 +320,7 @@ func TestLongLineColorIsCutCleanly(t *testing.T) {
 	if got := rowIndex(rows, "itema:"); got != 3 {
 		t.Fatalf("itema row %d\n%s", got, strings.Join(rows, "\n"))
 	}
-	plain := "key: " + strings.Repeat("v", 200)
+	plain := yamlGutter(1, c.Config.YAML) + "key: " + strings.Repeat("v", 200)
 	for i, r := range rows {
 		if lipgloss.Width(r) > 30 {
 			t.Fatalf("row %d width %d", i, lipgloss.Width(r))
@@ -330,8 +333,8 @@ func TestLongLineColorIsCutCleanly(t *testing.T) {
 		t.Fatalf("expected highlighted row: %q", rows[2])
 	}
 	got := strings.TrimRight(ansi.Strip(rows[2]), " ")
-	if got != plain[:30] {
-		t.Fatalf("row 2 = %q, want %q", got, plain[:30])
+	if want := ansi.Truncate(plain, 30, ""); got != want {
+		t.Fatalf("row 2 = %q, want %q", got, want)
 	}
 }
 
@@ -403,5 +406,101 @@ func TestDisappearThenReappearResetsScroll(t *testing.T) {
 		if d.View() != top {
 			t.Fatalf("tab %d: scroll kept after disappear/reappear", tb)
 		}
+	}
+}
+
+// yamlGutter is the plain-text gutter numberLines puts before line n of yaml.
+func yamlGutter(n int, yaml string) string {
+	total := len(strings.Split(strings.TrimRight(yaml, "\n"), "\n"))
+	return fmt.Sprintf("%*d │ ", len(strconv.Itoa(total)), n)
+}
+
+func numberedConfig(t *testing.T, yaml string, h int) (detailPane, []string) {
+	t.Helper()
+	d := newDetailPane(false)
+	d.SetSize(60, h)
+	c := configCluster()
+	c.Config.YAML = yaml
+	d.SetCluster(c, true)
+	d.SetTab(tabConfig)
+	return d, rowsOf(d.View())
+}
+
+func TestConfigLinesAreNumbered(t *testing.T) {
+	yaml := "name: api\ntype: EDS\nconnect_timeout: 5s\n"
+	_, rows := numberedConfig(t, yaml, 8)
+	// row 0 tab line, row 1 header, rows 2.. the YAML
+	want := []string{"1 │ name: api", "2 │ type: EDS", "3 │ connect_timeout: 5s"}
+	for i, w := range want {
+		if got := strings.TrimRight(rows[2+i], " "); got != w {
+			t.Fatalf("row %d = %q, want %q", 2+i, got, w)
+		}
+	}
+	if strings.Contains(rows[5], "│") {
+		t.Fatalf("no number past the last YAML line: %q", rows[5])
+	}
+}
+
+func TestConfigLineNumbersAreRightAlignedAndStartWithOneAfterScrolling(t *testing.T) {
+	var b strings.Builder
+	for i := 1; i <= 120; i++ {
+		fmt.Fprintf(&b, "k%d: v\n", i)
+	}
+	d, rows := numberedConfig(t, b.String(), 12)
+	if got := strings.TrimRight(rows[2], " "); got != "  1 │ k1: v" {
+		t.Fatalf("first row %q: numbers must be right-aligned to the widest (3 digits)", got)
+	}
+	d.HandleKey(key("pgdown"))
+	rows = rowsOf(d.View())
+	first := strings.TrimRight(rows[2], " ")
+	n := d.vp.YOffset
+	if n == 0 {
+		t.Fatal("pgdown should have scrolled")
+	}
+	if want := fmt.Sprintf("%3d │ k%d: v", n+1, n+1); first != want {
+		t.Fatalf("after scrolling the first row is %q, want %q (numbers follow the YAML line)", first, want)
+	}
+	for i := 0; i < 20; i++ {
+		d.HandleKey(key("pgdown"))
+	}
+	rows = rowsOf(d.View())
+	if !strings.Contains(strings.Join(rows, "\n"), "120 │ k120: v") {
+		t.Fatalf("the last line must carry number 120:\n%s", strings.Join(rows, "\n"))
+	}
+}
+
+func TestConfigNumbersAbsentForErrorsAndEmptyYAML(t *testing.T) {
+	d := newDetailPane(false)
+	d.SetSize(60, 8)
+	c := configCluster()
+	c.Config = snapshot.ConfigInfo{Err: "config unavailable: boom"}
+	d.SetCluster(c, true)
+	d.SetTab(tabConfig)
+	v := d.View()
+	if !strings.Contains(v, "config unavailable: boom") || strings.Contains(v, "│") {
+		t.Fatalf("an error must not be numbered:\n%s", v)
+	}
+	c.Config = snapshot.ConfigInfo{}
+	d.SetCluster(c, true)
+	if strings.Contains(d.View(), "│") {
+		t.Fatalf("empty YAML must not be numbered:\n%s", d.View())
+	}
+}
+
+func TestLineNumbersDoNotTriggerReHighlighting(t *testing.T) {
+	d := newDetailPane(true)
+	d.SetSize(60, 10)
+	c := configCluster()
+	d.SetCluster(c, true)
+	d.SetTab(tabConfig)
+	before := d.highlights
+	d.SetSize(80, 12)
+	d.SetSize(60, 10)
+	d.SetCluster(c, true)
+	if d.highlights != before {
+		t.Fatalf("resize/refresh re-ran chroma (%d -> %d)", before, d.highlights)
+	}
+	if !strings.Contains(ansi.Strip(d.View()), "1 │ ") {
+		t.Fatalf("numbers must also be present when colour is on:\n%s", ansi.Strip(d.View()))
 	}
 }

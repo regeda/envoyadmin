@@ -5,7 +5,7 @@ cluster list on the left, details on the right, and a header showing the connect
 
 - Cluster list: name, type (EDS / STRICT_DNS / ...), healthy/total hosts, and a colored marker when any host is unhealthy or ejected. `/` fuzzy-filters.
 - Endpoints tab: address, health flags (`FAILED_ACTIVE_HC`, `FAILED_OUTLIER_CHECK`, `EDS_STATUS_UNHEALTHY`, ...), weight, zone, `rq_active` / `rq_error` / `cx_active`.
-- Config tab (`c`): the cluster's config from `/config_dump` as highlighted YAML, with `version_info` and `last_updated`.
+- Config tab (`c`): the cluster's config from `/config_dump` as highlighted, line-numbered YAML, with `version_info` and `last_updated`.
 - Auto-refresh; the UI never blocks on HTTP. Errors appear as a red banner over the top of the screen and clear when Envoy answers again.
 
 ## Install and run

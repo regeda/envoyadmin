@@ -311,10 +311,11 @@ func TestHelpToggle(t *testing.T) {
 }
 
 func TestPanesAlignOnTheSeparator(t *testing.T) {
-	for _, sz := range [][2]int{{120, 30}, {80, 24}, {80, 12}, {200, 60}} {
+	// the list pane is 30% of the width, never below 28 cells
+	for _, c := range []struct{ w, h, listW int }{{120, 30, 36}, {80, 24, 28}, {80, 12, 28}, {200, 60, 60}, {100, 30, 30}} {
+		sz, listW := [2]int{c.w, c.h}, c.listW
 		m := sized(New(testOpts(nil)), sz[0], sz[1])
 		m = send(m, snapshotMsg{snap: snap(cl("api", 1, 2), cl("db", 2, 2))})
-		listW := min(max(sz[0]*35/100, 28), 50)
 		lines := strings.Split(m.View(), "\n")
 		first := m.headerRows()
 		last := sz[1] - footerRows - 1

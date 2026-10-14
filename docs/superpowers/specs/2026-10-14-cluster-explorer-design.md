@@ -125,7 +125,7 @@ The cluster explorer is concrete code. The list/detail pane contains no cluster-
 rows 1-2   logo (left)            connection block (right)
 row  3     margin (blank)
 row  4     tab: Clusters (N)
-rows 5..H-1  list pane (~35%, with floor and cap) | detail pane
+rows 5..H-1  list pane (30% of the width, floor 28) | detail pane
 row  H     status bar
 ```
 
@@ -178,6 +178,7 @@ Logo (2 rows, half-block characters, one accent color):
 ### 5.7 Config tab
 
 - A `bubbles/viewport` with chroma-highlighted YAML, computed once per snapshot and cached, not on every `View`.
+- Every YAML line carries a dim, right-aligned line number and a `│` gutter (error text and empty config are not numbered).
 - A header shows `version_info` and `last_updated`. For a static cluster it shows `static` and no version.
 - Under `NO_COLOR` it falls back to plain YAML.
 

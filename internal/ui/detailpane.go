@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/viewport"
@@ -81,6 +83,21 @@ func (d *detailPane) syncConfig() {
 	d.applyContent()
 }
 
+// numberLines prefixes every line with a dim, right-aligned line number and a
+// gutter bar. The numbers follow the YAML lines (one rendered row per line),
+// so they stay correct while the viewport scrolls. Empty content gets none.
+func numberLines(s string) string {
+	if s == "" {
+		return s
+	}
+	lines := strings.Split(s, "\n")
+	digits := len(strconv.Itoa(len(lines)))
+	for i, l := range lines {
+		lines[i] = dimStyle.Render(fmt.Sprintf("%*d │", digits, i+1)) + " " + l
+	}
+	return strings.Join(lines, "\n")
+}
+
 // clipLines cuts every line to w cells so each logical line is one rendered row.
 func clipLines(s string, w int) string {
 	lines := strings.Split(s, "\n")
@@ -98,7 +115,7 @@ func (d *detailPane) applyContent() {
 		d.vp.SetContent(clipLines(dimStyle.Render(d.cluster.Config.Err), w))
 		return
 	}
-	d.vp.SetContent(clipLines(d.cfgOut, w))
+	d.vp.SetContent(clipLines(numberLines(d.cfgOut), w))
 }
 
 func (d *detailPane) HandleKey(k tea.KeyMsg) {

@@ -109,7 +109,9 @@ func (m Model) headerRows() int {
 
 func (m Model) paneHeight() int { return max(m.height-m.headerRows()-footerRows, 1) }
 
-func (m Model) listWidth() int { return min(max(m.width*35/100, 28), 50) }
+// listWidth is 30% of the terminal, but never below 28 cells (the narrowest
+// width a cluster row stays readable at).
+func (m Model) listWidth() int { return max(m.width*30/100, 28) }
 
 func (m *Model) layout() {
 	listW := m.listWidth()
