@@ -104,15 +104,49 @@ func TestSetScenarioAndUpdate(t *testing.T) {
 		t.Fatalf("big scenario has %d clusters", n)
 	}
 
-	s.SetScenario(Healthy())
-	s.Update(func(sc *Scenario) {
-		sc.Clusters[0].Hosts[0].Health = map[string]any{"failed_active_health_check": true}
+	sc := Healthy()
+	sc.Clusters[0].Hosts[0].Health = map[string]any{"a": true}
+	origZone := sc.Clusters[0].Hosts[0].Zone
+	s.SetScenario(sc)
+	s.Update(func(x *Scenario) {
+		x.Clusters[0].Hosts[0].Health["a"] = false
+		x.Clusters[0].Hosts[0].Zone = "z"
 	})
-	_, body = get(t, srv.URL+"/clusters?format=json")
-	if !strings.Contains(body, "failed_active_health_check") {
-		t.Fatal("update not visible")
-	}
-	if Healthy().Clusters[0].Hosts[0].Health != nil {
+	if sc.Clusters[0].Hosts[0].Health["a"] != true || sc.Clusters[0].Hosts[0].Zone != origZone {
 		t.Fatal("Update must not mutate shared builder data")
 	}
+	_, body = get(t, srv.URL+"/clusters?format=json")
+	if !strings.Contains(body, `"a":false`) && !strings.Contains(body, `"zone":"z"`) {
+		t.Fatal("update not visible")
+	}
+}
+
+func TestConcurrentUpdateAndServe(t *testing.T) {
+	s := NewServer(Healthy())
+	srv := httptest.NewServer(s)
+	defer srv.Close()
+
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; ; i++ {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			s.Update(func(x *Scenario) {
+				x.Clusters[0].Hosts[0].Health = map[string]any{"n": i}
+			})
+		}
+	}()
+	deadline := time.Now().Add(100 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if code, _ := get(t, srv.URL+"/clusters?format=json"); code != 200 {
+			t.Fatalf("status %d", code)
+		}
+	}
+	close(stop)
+	<-done
 }
