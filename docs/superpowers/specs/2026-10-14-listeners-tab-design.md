@@ -169,7 +169,7 @@ type FilterChain struct {
 }
 ```
 
-- **State precedence:** error > draining > warming > active. A listener with a rejected update and an older version still active has `State = Error` and `ServingOld = true`. Static listeners are `Active` with `Static = true` (shown as `static`).
+- **State precedence:** error > draining > warming > active, where `draining` applies only when there is a `draining_state` and no `active_state`. Envoy reports `draining_state` next to `active_state` for `--drain-time-s` (600 s by default) after every non-in-place update, so a healthy, freshly updated listener must stay `Active` (the old version being drained is not shown); a listener is `Draining` only when it has nothing active. A listener with a rejected update and an older version still active has `State = Error` and `ServingOld = true`. Static listeners are `Active` with `Static = true` (shown as `static`).
 - **VersionInfo / LastUpdated** come from the serving state: active, else warming, else draining, else the error attempt.
 - **Address:** `address.socket_address` as `host:port` (IPv6 bracketed); a pipe as `unix:<path>`; empty if neither is present.
 - **Filter chains** are parsed from the listener JSON:

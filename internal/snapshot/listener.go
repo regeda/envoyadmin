@@ -38,7 +38,7 @@ type Listener struct {
 	VersionInfo   string
 	LastUpdated   time.Time
 	ErrorDetails  string
-	ServingOld    bool // an error/warming update with an older version still active
+	ServingOld    bool // a rejected (error) update with an older version still active
 	Chains        []FilterChain
 	Config        ConfigInfo
 }
@@ -68,7 +68,9 @@ func listenerFrom(lc admin.ListenerConfig) Listener {
 		l.State = ListenerError
 		l.ErrorDetails = strings.TrimSpace(lc.Error.Details) // Envoy ends it with a newline
 		l.ServingOld = lc.Active != nil
-	case lc.Draining != nil:
+	case lc.Draining != nil && lc.Active == nil:
+		// Envoy keeps reporting the old version as draining next to the new
+		// active one for --drain-time-s after every update; that is healthy.
 		l.State = ListenerDraining
 	case lc.Warming != nil:
 		l.State = ListenerWarming
