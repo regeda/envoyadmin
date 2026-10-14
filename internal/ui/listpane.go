@@ -83,8 +83,8 @@ func (l *listPane) refilter() {
 	l.restoreCursor()
 }
 
-// restoreCursor keeps the selection on the same Key; if it is gone it falls
-// to the nearest row.
+// restoreCursor keeps the selection on the same Key; if it is gone while other
+// rows exist it falls to the nearest row.
 func (l *listPane) restoreCursor() {
 	for i, m := range l.visible {
 		if l.all[m.idx].Key() == l.selected {
@@ -95,10 +95,11 @@ func (l *listPane) restoreCursor() {
 	}
 	l.cursor = min(l.cursor, len(l.visible)-1)
 	l.cursor = max(l.cursor, 0)
-	l.selected = ""
 	if len(l.visible) > 0 {
 		l.selected = l.all[l.visible[l.cursor].idx].Key()
 	}
+	// An empty list (a failed dump, a filter matching nothing) keeps `selected`,
+	// so the place is restored when items return.
 	l.clampOffset()
 }
 

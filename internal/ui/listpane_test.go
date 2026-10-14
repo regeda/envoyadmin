@@ -322,3 +322,41 @@ func TestEmptyTextNoticeAndPrecedence(t *testing.T) {
 		t.Fatalf("height %d, want 12", n)
 	}
 }
+
+func TestSelectionSurvivesATransientEmptyList(t *testing.T) {
+	items := func() []resourceItem {
+		return listenerItems([]snapshot.Listener{{Name: "a"}, {Name: "b"}, {Name: "c"}})
+	}
+	l := newListPane()
+	l.SetSize(40, 10)
+	l.SetItems(items())
+	l.HandleKey(key("j"))
+	l.HandleKey(key("j"))
+	l.SetItems(nil) // a failed dump
+	if _, ok := l.Selected(); ok {
+		t.Fatal("an empty list has no selection")
+	}
+	l.SetItems(items())
+	if it, ok := l.Selected(); !ok || it.Key() != "c" {
+		t.Fatalf("the selection must come back by key, got %v %v", it, ok)
+	}
+
+	// a filter that matches nothing, then cleared
+	l.HandleKey(key("/"))
+	for _, r := range "zzzz" {
+		l.HandleKey(key(string(r)))
+	}
+	if len(l.visible) != 0 {
+		t.Fatal("precondition: nothing matches")
+	}
+	l.HandleKey(key("esc"))
+	if it, ok := l.Selected(); !ok || it.Key() != "c" {
+		t.Fatalf("clearing the filter restores the selection, got %v %v", it, ok)
+	}
+
+	// a vanished key with other items present still falls to the nearest row
+	l.SetItems(listenerItems([]snapshot.Listener{{Name: "a"}, {Name: "b"}}))
+	if it, _ := l.Selected(); it == nil || it.Key() != "b" {
+		t.Fatalf("a gone key falls to the nearest row, got %v", it)
+	}
+}
