@@ -1,7 +1,7 @@
 █▀▀ █▄ █ █ █ █▀█ █ █ ▄▀█ █▀▄ █▀▄▀█ █ █▄ █                                                ● connected  http://envoy:15000
 ██▄ █ ▀█ ▀▄▀ █▄█  █  █▀█ █▄▀ █ ▀ █ █ █ ▀█                                                  Envoy 1.31.0 · updated 2s ago
 
- [Clusters (3)]  Listeners (3) 
+ [Clusters (3)]  Listeners (3)   Secrets (!) 
 / to filter                         │  api-gateway  ·  Endpoints | Config                                               
 >● api-gateway  EDS              2/2│2 hosts · 2 healthy · 0 ejected                                                    
  ● search       EDS              1/1│Version       42                                                                   

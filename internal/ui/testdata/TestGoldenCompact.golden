@@ -1,5 +1,5 @@
 envoyadmin                                                           ● connected  http://envoy:15000
- [Clusters (6)]  Listeners (7) 
+ [Clusters (6)]  Listeners (7)   Secrets (!) 
 / to filter                   │  orders-db  ·  Endpoints | Config                                   
 >● orders-d STRICT_DNS     0/2│2 hosts · 0 healthy · 2 ejected                                      
  ● api-gate EDS            2/3│Version       41                                                     

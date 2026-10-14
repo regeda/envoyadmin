@@ -1,7 +1,7 @@
 █▀▀ █▄ █ █ █ █▀█ █ █ ▄▀█ █▀▄ █▀▄▀█ █ █▄ █                                                ● connected  http://envoy:15000
 ██▄ █ ▀█ ▀▄▀ █▄█  █  █▀█ █▄▀ █ ▀ █ █ █ ▀█                                                  Envoy 1.31.0 · updated 2s ago
 
-  Clusters (6)  [Listeners (7)]
+  Clusters (6)  [Listeners (7)]  Secrets (!) 
 / virtualInbound                    │  virtualInbound  ·  Overview | Config                                             
 >● virtualInbound      0.0.0.0:15006│Bind address  0.0.0.0:15006                                                        
                                     │State         active                                                               

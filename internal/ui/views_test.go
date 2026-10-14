@@ -47,12 +47,20 @@ func TestTabSwitchesResourcesAndShiftTabGoesBack(t *testing.T) {
 		t.Fatalf("tab -> Listeners, got %v %q", m.active, activeName(m))
 	}
 	m = send(m, key("tab"))
+	if m.active != kindSecrets {
+		t.Fatal("tab -> Secrets")
+	}
+	m = send(m, key("tab"))
 	if m.active != kindClusters {
 		t.Fatal("tab wraps back to Clusters")
 	}
 	m = send(m, key("shift+tab"))
-	if m.active != kindListeners {
+	if m.active != kindSecrets {
 		t.Fatal("shift+tab goes backwards (and wraps)")
+	}
+	m = send(m, key("shift+tab"))
+	if m.active != kindListeners {
+		t.Fatal("shift+tab back to Listeners")
 	}
 	m = send(m, key("shift+tab"))
 	if m.active != kindClusters {
@@ -71,7 +79,7 @@ func TestEachTabKeepsItsOwnState(t *testing.T) {
 	if activeName(m) != "l-error" {
 		t.Fatalf("filter selects l-error, got %q", activeName(m))
 	}
-	m = send(m, key("tab"))
+	m = send(send(m, key("tab")), key("tab")) // through Secrets
 	if activeName(m) != "beta" || m.cur().list.query != "" {
 		t.Fatalf("clusters keep their selection and have no filter: %q %q", activeName(m), m.cur().list.query)
 	}
@@ -261,7 +269,7 @@ func TestListenerListInlineMessages(t *testing.T) {
 		t.Fatal("the failure message replaces 'no listeners'")
 	}
 	// the Clusters tab is unaffected
-	m = send(m, key("tab"))
+	m = send(send(m, key("tab")), key("tab")) // through Secrets
 	if !strings.Contains(m.View(), "alpha") || strings.Contains(m.View(), "listeners unavailable") {
 		t.Fatalf("clusters keep working:\n%s", m.View())
 	}

@@ -11,6 +11,7 @@ type resourceKind int
 const (
 	kindClusters resourceKind = iota
 	kindListeners
+	kindSecrets
 	kindCount
 )
 
@@ -60,6 +61,21 @@ var resources = [kindCount]resource{
 		warn:        func(s snapshot.Snapshot) bool { return s.ListenersErr != "" },
 		emptyList:   "no listeners",
 		emptyDetail: "no listener selected",
+	},
+	kindSecrets: {
+		label: "Secrets",
+		items: func(s snapshot.Snapshot) []resourceItem { return secretItems(s.Secrets, s.FetchedAt) },
+		count: func(s snapshot.Snapshot) int { return len(s.Secrets) },
+		summary: func(s snapshot.Snapshot) string {
+			if s.SecretsErr != "" {
+				return "secrets unavailable"
+			}
+			return fmt.Sprintf("%s · %d need attention", plural(len(s.Secrets), "secret"), s.SecretsNeedAttention())
+		},
+		notice:      func(s snapshot.Snapshot) string { return s.SecretsErr },
+		warn:        func(s snapshot.Snapshot) bool { return s.SecretsErr != "" || s.SecretsNeedAttention() > 0 },
+		emptyList:   "no secrets",
+		emptyDetail: "no secret selected",
 	},
 }
 

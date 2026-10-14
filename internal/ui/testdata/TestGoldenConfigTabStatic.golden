@@ -1,7 +1,7 @@
 █▀▀ █▄ █ █ █ █▀█ █ █ ▄▀█ █▀▄ █▀▄▀█ █ █▄ █                                                ● connected  http://envoy:15000
 ██▄ █ ▀█ ▀▄▀ █▄█  █  █▀█ █▄▀ █ ▀ █ █ █ ▀█                                                  Envoy 1.31.0 · updated 2s ago
 
- [Clusters (6)]  Listeners (7) 
+ [Clusters (6)]  Listeners (7)   Secrets (!) 
 / to filter                         │  xds_cluster  ·  Endpoints | Config                                               
  ● orders-db    STRICT_DNS       0/2│static (no xDS version)   last_updated: 2026-10-14 10:00:00Z                       
  ● api-gateway  EDS              2/3│1│ '@type': type.googleapis.com/envoy.config.cluster.v3.Cluster                    

@@ -103,12 +103,13 @@ func TestEndToEndListenersTabAndIsolatedFailure(t *testing.T) {
 	// fail only the dynamic listener dump: no banner, an inline message instead
 	fake.Inject(demo.Fault{Status: 503, Match: "dynamic_listeners"})
 	waitFor(t, tm, "listeners unavailable", "Listeners (!)")
+	tm.Send(key("tab")) // Secrets
 	tm.Send(key("tab"))
 	waitFor(t, tm, "api-gateway") // the Clusters tab still works
 
 	fake.Inject(demo.Fault{})
 	waitFor(t, tm, "Listeners (7)") // the failed label can only clear through a successful fetch
-	tm.Send(key("tab"))
+	tm.Send(key("tab"))             // Listeners
 	waitFor(t, tm, "virtualInbound")
 
 	tm.Send(key("q"))
