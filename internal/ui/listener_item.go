@@ -117,13 +117,16 @@ func (it listenerItem) sticky(w int) []string {
 	return append(lines, "", boldStyle.Render("Filter chains ("+strconv.Itoa(len(l.Chains))+")"))
 }
 
-func (it listenerItem) chainLines() []string {
+// chainLines is two rows per chain. The label column is as wide as the widest
+// label, but at most a third of the pane (never under overviewLabelW), so long
+// Istio-style names stay distinguishable; a cut label always ends with "…".
+func (it listenerItem) chainLines(w int) []string {
 	var out []string
 	labelW := 0
 	for _, c := range it.l.Chains {
 		labelW = max(labelW, lipgloss.Width(c.Label))
 	}
-	labelW = min(labelW, overviewLabelW)
+	labelW = min(labelW, max(w/3, overviewLabelW))
 	for _, c := range it.l.Chains {
 		match := "any"
 		if len(c.Match) > 0 {
@@ -137,7 +140,7 @@ func (it listenerItem) chainLines() []string {
 			filters += "TLS"
 		}
 		out = append(out,
-			" "+pad(trunc(c.Label, labelW), labelW)+"  "+match,
+			" "+pad(truncEllipsis(c.Label, labelW), labelW)+"  "+match,
 			" "+strings.Repeat(" ", labelW)+"  "+dimStyle.Render(filters))
 	}
 	return out
@@ -148,7 +151,7 @@ func (it listenerItem) OverviewMaxScroll(w, h int) int {
 	if rows <= 0 {
 		return 0
 	}
-	return max(len(it.chainLines())-rows, 0)
+	return max(len(it.chainLines(w))-rows, 0)
 }
 
 func (it listenerItem) Overview(w, h, scroll int) string {
@@ -164,7 +167,7 @@ func (it listenerItem) Overview(w, h, scroll int) string {
 		lines = sticky[:h]
 	} else {
 		lines = append(lines, sticky...)
-		chains := it.chainLines()
+		chains := it.chainLines(w)
 		rows := h - len(sticky)
 		start := max(0, min(scroll, max(len(chains)-rows, 0)))
 		lines = append(lines, chains[start:min(start+rows, len(chains))]...)

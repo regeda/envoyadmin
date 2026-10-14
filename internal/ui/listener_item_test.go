@@ -429,3 +429,68 @@ func TestListenerOverviewMaxScrollWithWrappedNote(t *testing.T) {
 		t.Fatalf("max scroll must land exactly on the last chain:\n%s", last)
 	}
 }
+
+func istioListener() snapshot.Listener {
+	l := lst("virtualInbound", "0.0.0.0:15006", snapshot.ListenerActive)
+	l.Chains = []snapshot.FilterChain{
+		{Label: "virtualInbound-blackhole", Match: []string{"port=1"}, Filters: []string{"tcp_proxy"}},
+		{Label: "virtualInbound-catchall-http", Match: []string{"transport=tls"}, Filters: []string{"http_connection_manager"}},
+		{Label: "short", Filters: []string{"tcp_proxy"}},
+	}
+	return l
+}
+
+func TestChainLabelsStayDistinguishableAndCutsAreMarked(t *testing.T) {
+	it := item0(istioListener())
+	v := ansiStrip(strings.Join(overviewRows(it, 84, 20, 0), "\n"))
+	if !strings.Contains(v, "virtualInbound-blackhole ") || !strings.Contains(v, "virtualInbound-catchall-http ") {
+		t.Fatalf("both long labels must be readable in full at 84 cells:\n%s", v)
+	}
+
+	long := istioListener()
+	long.Chains[0].Label = "virtualInbound-" + strings.Repeat("x", 80)
+	long.Chains[1].Label = "virtualInbound-" + strings.Repeat("y", 80)
+	for w := 20; w <= 120; w++ {
+		rows := overviewRows(item0(long), w, 20, 0)
+		for _, r := range rows {
+			if lipgloss.Width(r) > w {
+				t.Fatalf("w=%d: row %d wide: %q", w, lipgloss.Width(r), r)
+			}
+		}
+	}
+	rows := overviewRows(item0(long), 60, 20, 0)
+	var cut int
+	for _, r := range rows {
+		r = ansiStrip(r)
+		if strings.HasPrefix(r, " virtualInbound-") {
+			cut++
+			if !strings.Contains(r, "…") {
+				t.Fatalf("a cut label must end with an ellipsis: %q", r)
+			}
+		}
+	}
+	if cut != 2 {
+		t.Fatalf("want two cut labels, saw %d:\n%s", cut, strings.Join(rows, "\n"))
+	}
+}
+
+func TestChainLabelWidthKeepsScrollMaxConsistent(t *testing.T) {
+	l := istioListener()
+	for i := 0; i < 20; i++ {
+		l.Chains = append(l.Chains, snapshot.FilterChain{Label: fmt.Sprintf("c-%02d", i), Filters: []string{"tcp_proxy"}})
+	}
+	it := item0(l)
+	for _, w := range []int{20, 60, 84, 120} {
+		maxS := it.OverviewMaxScroll(w, 14)
+		last := ansiStrip(strings.Join(overviewRows(it, w, 14, maxS), "\n"))
+		if !strings.Contains(last, "c-19") && w >= 40 {
+			t.Fatalf("w=%d: the max scroll must reveal the last chain:\n%s", w, last)
+		}
+		if got := ansiStrip(strings.Join(overviewRows(it, w, 14, maxS+5), "\n")); got != last {
+			t.Fatalf("w=%d: scrolling past the max must not move", w)
+		}
+		if maxS > 0 && ansiStrip(strings.Join(overviewRows(it, w, 14, maxS-1), "\n")) == last {
+			t.Fatalf("w=%d: max-1 must differ from max", w)
+		}
+	}
+}
