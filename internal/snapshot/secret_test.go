@@ -163,6 +163,40 @@ func TestLinkSecrets(t *testing.T) {
 	}
 }
 
+func TestLinkSecretsLinksEverySameNamedEntry(t *testing.T) {
+	cfg := ConfigInfo{JSON: []byte(`{"tls_certificate_sds_secret_configs":[{"name":"server-cert"}]}`)}
+	s := Snapshot{
+		Secrets:  []Secret{{Name: "server-cert", State: SecretActive}, {Name: "server-cert", State: SecretWarming}},
+		Clusters: []Cluster{{Name: "api", Config: cfg}},
+	}
+	linkSecrets(&s)
+	for i, sec := range s.Secrets {
+		if len(sec.UsedBy) != 1 || sec.UsedBy[0] != (Ref{"cluster", "api"}) {
+			t.Fatalf("entry %d UsedBy = %+v", i, sec.UsedBy)
+		}
+	}
+	if u := s.Clusters[0].Secrets; len(u) != 1 || !u[0].Loaded {
+		t.Fatalf("uses = %+v", u)
+	}
+}
+
+func TestLinkSecretsIsIdempotent(t *testing.T) {
+	cfg := ConfigInfo{JSON: []byte(`{"tls_certificate_sds_secret_configs":[{"name":"server-cert"}]}`)}
+	s := Snapshot{
+		Secrets:   []Secret{{Name: "server-cert"}},
+		Clusters:  []Cluster{{Name: "api", Config: cfg}},
+		Listeners: []Listener{{Name: "l1", Config: cfg}},
+	}
+	linkSecrets(&s)
+	linkSecrets(&s)
+	if u := s.Secrets[0].UsedBy; len(u) != 2 || u[0] != (Ref{"cluster", "api"}) || u[1] != (Ref{"listener", "l1"}) {
+		t.Fatalf("UsedBy = %+v", u)
+	}
+	if len(s.Clusters[0].Secrets) != 1 || len(s.Listeners[0].Secrets) != 1 {
+		t.Fatalf("uses duplicated: %+v %+v", s.Clusters[0].Secrets, s.Listeners[0].Secrets)
+	}
+}
+
 func TestLinkSecretsAssumesLoadedWhenDumpFailed(t *testing.T) {
 	s := Snapshot{
 		SecretsErr: "secrets unavailable: boom",

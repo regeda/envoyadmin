@@ -181,16 +181,18 @@ func secretRefs(raw []byte) []string {
 // Envoy has not loaded is marked not loaded, unless the secrets dump failed:
 // then nothing is known and nothing is flagged.
 func linkSecrets(s *Snapshot) {
-	idx := make(map[string]int, len(s.Secrets))
+	// Envoy lists a rotating secret twice (active and warming) under one name.
+	idx := make(map[string][]int, len(s.Secrets))
 	for i := range s.Secrets {
-		idx[s.Secrets[i].Name] = i
+		idx[s.Secrets[i].Name] = append(idx[s.Secrets[i].Name], i)
 		s.Secrets[i].UsedBy = nil
 	}
 	uses := func(kind, name string, cfg ConfigInfo) []SecretUse {
 		var out []SecretUse
 		for _, ref := range secretRefs(cfg.JSON) {
-			i, loaded := idx[ref]
-			if loaded {
+			entries := idx[ref]
+			loaded := len(entries) > 0
+			for _, i := range entries {
 				s.Secrets[i].UsedBy = append(s.Secrets[i].UsedBy, Ref{Kind: kind, Name: name})
 			}
 			out = append(out, SecretUse{Name: ref, Loaded: loaded || s.SecretsErr != ""})
