@@ -31,6 +31,8 @@ type SecretConfig struct {
 	Kind        string
 	LastUpdated time.Time
 	State       SecretState
+	// Cert is nil when the secret has no readable inline certificate.
+	Cert *CertFacts
 }
 
 type rawSecret struct {
@@ -71,6 +73,7 @@ func secretConfig(r rawSecret, state SecretState) (SecretConfig, bool) {
 	return SecretConfig{
 		Name: r.Name, VersionInfo: r.VersionInfo, Kind: secretKind(r.Secret),
 		LastUpdated: parseTime(r.LastUpdated), State: state,
+		Cert: certFacts(r.Secret),
 	}, true
 }
 

@@ -156,4 +156,5 @@ func TestRealCaptureSecretConfigs(t *testing.T) {
 	if strings.Contains(formatAll(got), "PRIVATE KEY") {
 		t.Fatal("secret content leaked")
 	}
+	assertNoBodies(t, got, "BEGIN CERTIFICATE", "MIIDGjCC")
 }

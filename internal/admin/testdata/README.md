@@ -100,3 +100,5 @@ name. A file-based cert would show its file path instead. The body is
 - `secret` is the Secret proto with its own `@type` and `name`, plus one kind field
   (`tls_certificate`). The private key is `"[redacted]"`, but the certificate chain
   PEM is included, so the decoder still drops the body.
+
+`real-certs.json` is kept as evidence of why `/certs` is not used: it names an SDS certificate `<inline>`, so it cannot be joined to a secret by name.
