@@ -4,10 +4,10 @@
  [Clusters (3)]  Listeners (3) 
 / to filter                         │  api-gateway  ·  Endpoints | Config                                               
 >● api-gateway  EDS              2/2│2 hosts · 2 healthy · 0 ejected                                                    
- ● search       EDS              1/1│ADDRESS        FLAGS WEIGHT ZONE       RQ_ACTIVE RQ_ERR CX_ACTIVE                  
- ● xds_cluster  STATIC           1/1│10.0.1.11:8080 OK    1      us-east-1a 2         0      5                          
+ ● search       EDS              1/1│Version       42                                                                   
+ ● xds_cluster  STATIC           1/1│ADDRESS        FLAGS WEIGHT ZONE       RQ_ACTIVE RQ_ERR CX_ACTIVE                  
+                                    │10.0.1.11:8080 OK    1      us-east-1a 2         0      5                          
                                     │10.0.1.12:8080 OK    1      us-east-1b 1         0      4                          
-                                    │                                                                                   
                                     │                                                                                   
                                     │                                                                                   
                                     │                                                                                   

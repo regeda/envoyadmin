@@ -32,19 +32,19 @@ func TestEndpointsOrderAndSummary(t *testing.T) {
 		t.Fatalf("summary: %q", lines[0])
 	}
 	for _, col := range []string{"ADDRESS", "FLAGS", "WEIGHT", "ZONE", "RQ_ACTIVE", "RQ_ERR", "CX_ACTIVE"} {
-		if !strings.Contains(lines[1], col) {
-			t.Fatalf("header missing %s: %q", col, lines[1])
+		if !strings.Contains(lines[2], col) {
+			t.Fatalf("header missing %s: %q", col, lines[2])
 		}
 	}
 	// unhealthy hosts first, then by address; healthy host last
-	if !strings.Contains(lines[2], "10.0.0.1:80") || !strings.Contains(lines[3], "10.0.0.3:80") || !strings.Contains(lines[4], "10.0.0.2:80") {
+	if !strings.Contains(lines[3], "10.0.0.1:80") || !strings.Contains(lines[4], "10.0.0.3:80") || !strings.Contains(lines[5], "10.0.0.2:80") {
 		t.Fatalf("order wrong:\n%s", out)
 	}
-	if !strings.Contains(lines[2], "FAILED_ACTIVE_HC") || !strings.Contains(lines[2], "EDS_STATUS_UNHEALTHY") {
-		t.Fatalf("flags missing: %q", lines[2])
+	if !strings.Contains(lines[3], "FAILED_ACTIVE_HC") || !strings.Contains(lines[3], "EDS_STATUS_UNHEALTHY") {
+		t.Fatalf("flags missing: %q", lines[3])
 	}
-	if !strings.Contains(lines[4], "OK") {
-		t.Fatalf("healthy host should show OK: %q", lines[4])
+	if !strings.Contains(lines[5], "OK") {
+		t.Fatalf("healthy host should show OK: %q", lines[5])
 	}
 }
 
@@ -54,8 +54,8 @@ func TestEndpointsMissingFieldsAndPipeAddress(t *testing.T) {
 	if !strings.Contains(out, "unix:/var/run/agent.sock") {
 		t.Fatal(out)
 	}
-	if !strings.Contains(strings.Split(out, "\n")[2], " - ") {
-		t.Fatalf("empty zone should render '-': %q", strings.Split(out, "\n")[2])
+	if !strings.Contains(strings.Split(out, "\n")[3], " - ") {
+		t.Fatalf("empty zone should render '-': %q", strings.Split(out, "\n")[3])
 	}
 }
 
@@ -88,7 +88,7 @@ func TestEndpointsScrollAndClamp(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		c.Hosts = append(c.Hosts, snapshot.Host{Address: fmt.Sprintf("10.0.0.%02d:80", i)})
 	}
-	if m := maxEndpointScroll(c, 10); m != 12 {
+	if m := maxEndpointScroll(c, 11); m != 12 {
 		t.Fatalf("max scroll = %d, want 12", m)
 	}
 	out := renderEndpoints(c, 100, 10, 9999) // clamped, not out of range
@@ -124,7 +124,7 @@ func TestEndpointsNarrowWidthsDoNotPanic(t *testing.T) {
 
 func TestEndpointsBlankStatsShowZeroAndDash(t *testing.T) {
 	c := snapshot.Cluster{Name: "x", Hosts: []snapshot.Host{{Address: "unix:/a.sock"}}}
-	row := strings.Fields(strings.Split(renderEndpoints(c, 120, 4, 0), "\n")[2])
+	row := strings.Fields(strings.Split(renderEndpoints(c, 120, 5, 0), "\n")[3])
 	// address OK weight zone rq_active rq_err cx_active
 	want := []string{"unix:/a.sock", "OK", "0", "-", "0", "0", "0"}
 	if strings.Join(row, "|") != strings.Join(want, "|") {
@@ -135,8 +135,8 @@ func TestEndpointsBlankStatsShowZeroAndDash(t *testing.T) {
 func TestEndpointsFlagOverflowShowsCount(t *testing.T) {
 	c := snapshot.Cluster{Name: "x", Hosts: []snapshot.Host{{Address: "a", Flags: []string{
 		"FAILED_ACTIVE_HC", "FAILED_OUTLIER_CHECK", "EDS_STATUS_UNHEALTHY"}}}}
-	out := renderEndpoints(c, 100, 4, 0)
-	if !strings.Contains(strings.Split(out, "\n")[2], "+") {
+	out := renderEndpoints(c, 100, 5, 0)
+	if !strings.Contains(strings.Split(out, "\n")[3], "+") {
 		t.Fatalf("expected +N overflow marker: %q", out)
 	}
 }
@@ -213,17 +213,17 @@ func TestEndpointsLayoutFitsWithoutClip(t *testing.T) {
 		w int
 	}{{one, 77}, {typicalCluster(), 100}} {
 		w := tc.w
-		lines := endpointLines(tc.c, w, 8, 0)
+		lines := endpointLines(tc.c, w, 9, 0)
 		for _, col := range cols {
-			if !strings.Contains(lines[1], col) {
-				t.Fatalf("w=%d header missing %s: %q", w, col, lines[1])
+			if !strings.Contains(lines[2], col) {
+				t.Fatalf("w=%d header missing %s: %q", w, col, lines[2])
 			}
 		}
-		hw := lipgloss.Width(lines[1])
+		hw := lipgloss.Width(lines[2])
 		if hw > w {
 			t.Fatalf("w=%d unclipped header width %d", w, hw)
 		}
-		for _, l := range lines[2 : 2+len(tc.c.Hosts)] {
+		for _, l := range lines[3 : 3+len(tc.c.Hosts)] {
 			if lipgloss.Width(l) != hw {
 				t.Fatalf("w=%d row width %d != header %d: %q", w, lipgloss.Width(l), hw, l)
 			}
@@ -232,26 +232,26 @@ func TestEndpointsLayoutFitsWithoutClip(t *testing.T) {
 }
 
 func TestEndpointsDropsWeightThenZoneWhenNarrow(t *testing.T) {
-	lines := endpointLines(typicalCluster(), 60, 8, 0)
-	if strings.Contains(lines[1], "ZONE") || strings.Contains(lines[2], "eu-west") {
-		t.Fatalf("zone should be dropped: %q", lines[1])
+	lines := endpointLines(typicalCluster(), 60, 9, 0)
+	if strings.Contains(lines[2], "ZONE") || strings.Contains(lines[3], "eu-west") {
+		t.Fatalf("zone should be dropped: %q", lines[2])
 	}
-	if strings.Contains(lines[1], "WEIGHT") {
-		t.Fatalf("weight should be dropped before flags are squeezed: %q", lines[1])
+	if strings.Contains(lines[2], "WEIGHT") {
+		t.Fatalf("weight should be dropped before flags are squeezed: %q", lines[2])
 	}
-	if f := strings.Fields(lines[1]); strings.Join(f, " ") != "ADDRESS FLAGS RQ_ACTIVE RQ_ERR CX_ACTIVE" {
+	if f := strings.Fields(lines[2]); strings.Join(f, " ") != "ADDRESS FLAGS RQ_ACTIVE RQ_ERR CX_ACTIVE" {
 		t.Fatalf("columns: %v", f)
 	}
 	for _, col := range []string{"ADDRESS", "FLAGS", "RQ_ACTIVE", "RQ_ERR", "CX_ACTIVE"} {
-		if !strings.Contains(lines[1], col) {
-			t.Fatalf("header missing %s: %q", col, lines[1])
+		if !strings.Contains(lines[2], col) {
+			t.Fatalf("header missing %s: %q", col, lines[2])
 		}
 	}
-	hw := lipgloss.Width(lines[1])
+	hw := lipgloss.Width(lines[2])
 	if hw > 60 {
 		t.Fatalf("header width %d", hw)
 	}
-	for _, l := range lines[2:5] {
+	for _, l := range lines[3:6] {
 		if lipgloss.Width(l) != hw {
 			t.Fatalf("row width %d != %d: %q", lipgloss.Width(l), hw, l)
 		}
@@ -263,7 +263,7 @@ func TestEndpointsFullFlagNamesAtDefaultSize(t *testing.T) {
 	snap := fetchSnap(t, demo.Degraded())
 	seen := map[string]bool{}
 	for _, c := range snap.Clusters {
-		out := ansiStrip(strings.Join(endpointLines(c, 77, 12, 0)[1:], "\n"))
+		out := ansiStrip(strings.Join(endpointLines(c, 77, 13, 0)[2:], "\n"))
 		for _, h := range c.Hosts {
 			for i, f := range h.Flags {
 				if i > 0 {
@@ -287,16 +287,16 @@ func TestEndpointsFullFlagNamesAtDefaultSize(t *testing.T) {
 // At the 80-col minimum (51-cell pane) a cut flag ends in an ellipsis and the
 // numeric columns survive.
 func TestEndpointsTruncatedFlagShowsEllipsisAtMinimumWidth(t *testing.T) {
-	lines := endpointLines(typicalCluster(), 51, 8, 0)
+	lines := endpointLines(typicalCluster(), 51, 9, 0)
 	for _, col := range []string{"RQ_ACTIVE", "RQ_ERR", "CX_ACTIVE"} {
-		if !strings.Contains(lines[1], col) {
-			t.Fatalf("header lost %s: %q", col, lines[1])
+		if !strings.Contains(lines[2], col) {
+			t.Fatalf("header lost %s: %q", col, lines[2])
 		}
 	}
-	if !strings.Contains(ansiStrip(lines[2]), "…") {
-		t.Fatalf("truncated flag has no ellipsis: %q", lines[2])
+	if !strings.Contains(ansiStrip(lines[3]), "…") {
+		t.Fatalf("truncated flag has no ellipsis: %q", lines[3])
 	}
-	for _, l := range lines[1:5] {
+	for _, l := range lines[2:6] {
 		if lipgloss.Width(l) > 51 {
 			t.Fatalf("width %d: %q", lipgloss.Width(l), l)
 		}
@@ -305,12 +305,12 @@ func TestEndpointsTruncatedFlagShowsEllipsisAtMinimumWidth(t *testing.T) {
 
 func TestEndpointsUnixAddressWholeAtPaneWidth(t *testing.T) {
 	c := snapshot.Cluster{Name: "x", Hosts: []snapshot.Host{{Address: "unix:/var/run/agent.sock", Zone: "z"}}}
-	lines := endpointLines(c, 77, 4, 0)
-	if !strings.Contains(lines[2], "unix:/var/run/agent.sock") {
-		t.Fatalf("%q", lines[2])
+	lines := endpointLines(c, 77, 5, 0)
+	if !strings.Contains(lines[3], "unix:/var/run/agent.sock") {
+		t.Fatalf("%q", lines[3])
 	}
-	if lipgloss.Width(lines[2]) > 77 || !strings.Contains(lines[1], "CX_ACTIVE") {
-		t.Fatalf("width %d header %q", lipgloss.Width(lines[2]), lines[1])
+	if lipgloss.Width(lines[3]) > 77 || !strings.Contains(lines[2], "CX_ACTIVE") {
+		t.Fatalf("width %d header %q", lipgloss.Width(lines[3]), lines[2])
 	}
 }
 
@@ -318,12 +318,12 @@ func TestEndpointsUnixAddressWholeAtPaneWidth(t *testing.T) {
 // must still show every remaining column (found by the narrow goldens).
 func TestEndpointsHeaderFitsAtMinimumTerminalWidth(t *testing.T) {
 	for _, w := range []int{51, 55} {
-		lines := endpointLines(typicalCluster(), w, 8, 0)
-		if hw := lipgloss.Width(lines[1]); hw > w {
-			t.Fatalf("w=%d unclipped header width %d: %q", w, hw, lines[1])
+		lines := endpointLines(typicalCluster(), w, 9, 0)
+		if hw := lipgloss.Width(lines[2]); hw > w {
+			t.Fatalf("w=%d unclipped header width %d: %q", w, hw, lines[2])
 		}
-		if !strings.Contains(lines[1], "CX_ACTIVE") {
-			t.Fatalf("w=%d header lost CX_ACTIVE: %q", w, lines[1])
+		if !strings.Contains(lines[2], "CX_ACTIVE") {
+			t.Fatalf("w=%d header lost CX_ACTIVE: %q", w, lines[2])
 		}
 	}
 }
@@ -339,20 +339,20 @@ func TestEndpointsDropPriorityWeightBeforeZone(t *testing.T) {
 		}
 	}
 	// 120x30: 77-cell pane; WEIGHT dropped, ZONE kept, flag whole.
-	lines := endpointLines(c, 77, 6, 0)
-	if got := strings.Join(strings.Fields(lines[1]), " "); got != "ADDRESS FLAGS ZONE RQ_ACTIVE RQ_ERR CX_ACTIVE" {
+	lines := endpointLines(c, 77, 7, 0)
+	if got := strings.Join(strings.Fields(lines[2]), " "); got != "ADDRESS FLAGS ZONE RQ_ACTIVE RQ_ERR CX_ACTIVE" {
 		t.Fatalf("w=77 columns: %q", got)
 	}
-	if !strings.Contains(lines[2], "FAILED_OUTLIER_CHECK") || strings.Contains(lines[2], "…") {
-		t.Fatalf("flag cut: %q", lines[2])
+	if !strings.Contains(lines[3], "FAILED_OUTLIER_CHECK") || strings.Contains(lines[3], "…") {
+		t.Fatalf("flag cut: %q", lines[3])
 	}
 	// Only FLAGS + numeric columns fit (flags still whole at their needed width).
-	lines = endpointLines(c, 66, 6, 0)
-	if got := strings.Join(strings.Fields(lines[1]), " "); got != "ADDRESS FLAGS RQ_ACTIVE RQ_ERR CX_ACTIVE" {
+	lines = endpointLines(c, 66, 7, 0)
+	if got := strings.Join(strings.Fields(lines[2]), " "); got != "ADDRESS FLAGS RQ_ACTIVE RQ_ERR CX_ACTIVE" {
 		t.Fatalf("w=66 columns: %q", got)
 	}
-	if !strings.Contains(lines[2], "FAILED_OUTLIER_CHECK") {
-		t.Fatalf("flag cut at w=66: %q", lines[2])
+	if !strings.Contains(lines[3], "FAILED_OUTLIER_CHECK") {
+		t.Fatalf("flag cut at w=66: %q", lines[3])
 	}
 }
 
@@ -364,5 +364,35 @@ func TestHealthyOKFlagIsDim(t *testing.T) {
 	got := flagCell(nil, 6)
 	if !strings.Contains(got, dimStyle.Render("OK")) || strings.Contains(got, okStyle.Render("OK")) {
 		t.Fatalf("OK must be dim, not green (spec 5.6): %q", got)
+	}
+}
+
+func TestEndpointsShowTheAppliedVersion(t *testing.T) {
+	c := typicalCluster()
+	c.Config.VersionInfo = "42"
+	lines := endpointLines(c, 77, 9, 0)
+	if want := kv("Version", "42"); ansiStrip(lines[1]) != want {
+		t.Fatalf("version row = %q, want %q", ansiStrip(lines[1]), want)
+	}
+	if !strings.Contains(lines[2], "ADDRESS") {
+		t.Fatalf("the table header follows the version: %q", lines[2])
+	}
+	c.Config.VersionInfo = "" // static, or no config_dump entry
+	if got := ansiStrip(endpointLines(c, 77, 9, 0)[1]); got != kv("Version", "-") {
+		t.Fatalf("unknown version = %q", got)
+	}
+}
+
+func TestEndpointsScrollAccountsForTheHeadRows(t *testing.T) {
+	c := snapshot.Cluster{Name: "x"}
+	for i := 0; i < 10; i++ {
+		c.Hosts = append(c.Hosts, snapshot.Host{Address: fmt.Sprintf("10.0.0.%d:80", i)})
+	}
+	if m := maxEndpointScroll(c, 8); m != 5 { // 8 rows - summary, version, header = 5 hosts visible
+		t.Fatalf("max scroll = %d, want 5", m)
+	}
+	lines := endpointLines(c, 77, 8, 5)
+	if !strings.Contains(lines[3], "10.0.0.5:80") || !strings.Contains(lines[7], "10.0.0.9:80") {
+		t.Fatalf("last page:\n%s", strings.Join(lines, "\n"))
 	}
 }
