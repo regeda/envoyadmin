@@ -7,7 +7,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/regeda/txenvoy/internal/snapshot"
+	"github.com/regeda/envoyadmin/internal/snapshot"
 )
 
 const (

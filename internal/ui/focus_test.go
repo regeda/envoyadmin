@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/regeda/txenvoy/internal/snapshot"
+	"github.com/regeda/envoyadmin/internal/snapshot"
 )
 
 func focusModel() Model {

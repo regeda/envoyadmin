@@ -1,4 +1,4 @@
-// Package demo is a fake Envoy admin API used by tests and by `txenvoy --demo`.
+// Package demo is a fake Envoy admin API used by tests and by `envoyadmin --demo`.
 // It emits the JSON shape Envoy produces (snake_case protojson, uint64 as strings).
 package demo
 

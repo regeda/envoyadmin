@@ -5,7 +5,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/regeda/txenvoy/internal/snapshot"
+	"github.com/regeda/envoyadmin/internal/snapshot"
 )
 
 // rowCtx is what a list row needs to draw itself.

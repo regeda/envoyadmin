@@ -10,8 +10,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/regeda/txenvoy/internal/config"
-	"github.com/regeda/txenvoy/internal/snapshot"
+	"github.com/regeda/envoyadmin/internal/config"
+	"github.com/regeda/envoyadmin/internal/snapshot"
 )
 
 const (

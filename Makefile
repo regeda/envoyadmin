@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-BIN     := bin/txenvoy
+BIN     := bin/envoyadmin
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -ldflags "-X main.version=$(VERSION)"
 
@@ -12,8 +12,8 @@ GOLANGCI_LINT         := go run github.com/golangci/golangci-lint/v2/cmd/golangc
 help: ## List targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-12s %s\n", $$1, $$2}'
 
-build: ## Build bin/txenvoy
-	go build $(LDFLAGS) -o $(BIN) ./cmd/txenvoy
+build: ## Build bin/envoyadmin
+	go build $(LDFLAGS) -o $(BIN) ./cmd/envoyadmin
 
 run: build ## Build and run against the built-in demo server
 	$(BIN) --demo

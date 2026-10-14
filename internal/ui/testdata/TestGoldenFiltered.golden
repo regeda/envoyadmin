@@ -1,5 +1,5 @@
-▀█▀ ▀▄▀ █▀▀ █▄ █ █ █ █▀█ █ █                                                             ● connected  http://envoy:15000
- █  █ █ ██▄ █ ▀█ ▀▄▀ █▄█  █                                                                Envoy 1.31.0 · updated 2s ago
+█▀▀ █▄ █ █ █ █▀█ █ █ ▄▀█ █▀▄ █▀▄▀█ █ █▄ █                                                ● connected  http://envoy:15000
+██▄ █ ▀█ ▀▄▀ █▄█  █  █▀█ █▄▀ █ ▀ █ █ █ ▀█                                                  Envoy 1.31.0 · updated 2s ago
 
  [Clusters (40)]  Listeners (3) 
 / svc-01                            │  svc-014  ·  Endpoints | Config                                                   

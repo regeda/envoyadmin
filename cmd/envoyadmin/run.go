@@ -7,11 +7,11 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/regeda/txenvoy/internal/admin"
-	"github.com/regeda/txenvoy/internal/config"
-	"github.com/regeda/txenvoy/internal/demo"
-	"github.com/regeda/txenvoy/internal/snapshot"
-	"github.com/regeda/txenvoy/internal/ui"
+	"github.com/regeda/envoyadmin/internal/admin"
+	"github.com/regeda/envoyadmin/internal/config"
+	"github.com/regeda/envoyadmin/internal/demo"
+	"github.com/regeda/envoyadmin/internal/snapshot"
+	"github.com/regeda/envoyadmin/internal/ui"
 )
 
 func run(ctx context.Context, cfg config.Config) error {

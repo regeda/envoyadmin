@@ -16,7 +16,7 @@ func TestHeaderNormal(t *testing.T) {
 	if len(lines) != 4 {
 		t.Fatalf("lines=%d", len(lines))
 	}
-	if !strings.Contains(lines[0], "▀█▀ ▀▄▀") || !strings.Contains(lines[0], "● connected") {
+	if !strings.Contains(lines[0], "█▀▀ █▄ █") || !strings.Contains(lines[0], "● connected") {
 		t.Fatalf("row1: %q", lines[0])
 	}
 	if !strings.Contains(lines[1], "updated 2s ago") {
@@ -38,7 +38,7 @@ func TestHeaderNormal(t *testing.T) {
 func TestHeaderCompact(t *testing.T) {
 	h := renderHeader(80, true, "● connected  http://x", "row2 ignored", []headerTab{{Label: "Clusters (3)", Active: true}})
 	lines := strings.Split(h, "\n")
-	if len(lines) != 2 || !strings.Contains(lines[0], "txenvoy") || !strings.Contains(lines[1], "Clusters (3)") {
+	if len(lines) != 2 || !strings.Contains(lines[0], "envoyadmin") || !strings.Contains(lines[1], "Clusters (3)") {
 		t.Fatalf("%q", h)
 	}
 }

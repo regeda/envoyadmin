@@ -9,7 +9,7 @@ import (
 
 	adminv3 "github.com/envoyproxy/go-control-plane/envoy/admin/v3"
 
-	"github.com/regeda/txenvoy/internal/admin"
+	"github.com/regeda/envoyadmin/internal/admin"
 )
 
 func TestRenderConvertsLazilyAndCaches(t *testing.T) {

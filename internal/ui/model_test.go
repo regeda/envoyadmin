@@ -11,8 +11,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/regeda/txenvoy/internal/config"
-	"github.com/regeda/txenvoy/internal/snapshot"
+	"github.com/regeda/envoyadmin/internal/config"
+	"github.com/regeda/envoyadmin/internal/snapshot"
 )
 
 var fixedNow = time.Date(2026, 10, 14, 10, 0, 0, 0, time.UTC)

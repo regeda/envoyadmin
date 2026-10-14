@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/regeda/txenvoy/internal/admin"
-	"github.com/regeda/txenvoy/internal/demo"
+	"github.com/regeda/envoyadmin/internal/admin"
+	"github.com/regeda/envoyadmin/internal/demo"
 )
 
 func mustRead(t *testing.T, path string) []byte {

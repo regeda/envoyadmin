@@ -1,4 +1,4 @@
-# txenvoy
+# envoyadmin
 
 A real-time terminal UI for Envoy. It has two tabs, **Clusters** (a cluster explorer with live endpoint health) and **Listeners**:
 a list on the left, details on the right, and a header showing the connection state and errors. `Tab` switches between them.
@@ -14,9 +14,9 @@ a list on the left, details on the right, and a header showing the connection st
 ## Install and run
 
 ```sh
-make build            # bin/txenvoy
+make build            # bin/envoyadmin
 make run              # try it with the built-in fake Envoy, no cluster needed
-bin/txenvoy --admin http://localhost:15000
+bin/envoyadmin --admin http://localhost:15000
 ```
 
 ## Flags
@@ -28,7 +28,7 @@ bin/txenvoy --admin http://localhost:15000
 | `--timeout` | `3s` | Per-request timeout for each admin call |
 | `--demo` | off | Use a built-in fake admin server (`--admin` is ignored) |
 
-`txenvoy version` prints the version. Set `NO_COLOR=1` to disable colors.
+`envoyadmin version` prints the version. Set `NO_COLOR=1` to disable colors.
 
 ## Keys
 
@@ -50,13 +50,13 @@ bin/txenvoy --admin http://localhost:15000
 
 ## Running against a Kubernetes pod
 
-txenvoy reads the Envoy admin API, so forward the admin port to your machine and point `--admin` at it.
+envoyadmin reads the Envoy admin API, so forward the admin port to your machine and point `--admin` at it.
 
 1. **Plain pod or deployment.** `deploy/<name>` or `svc/<name>` also work as the forward target.
 
    ```sh
    kubectl -n <ns> port-forward pod/<pod> 15000:15000
-   txenvoy --admin http://localhost:15000
+   envoyadmin --admin http://localhost:15000
    ```
 
 2. **Istio sidecar.** The admin port is `15000` on the `istio-proxy` container, so the same forward works.
@@ -71,7 +71,7 @@ txenvoy reads the Envoy admin API, so forward the admin port to your machine and
 4. **Caveats.**
    - Keep the forward running in another terminal.
    - The admin interface is unauthenticated: bind to `127.0.0.1` only and never expose it.
-   - If the forward drops, txenvoy shows the error banner and recovers by itself once the forward is back.
+   - If the forward drops, envoyadmin shows the error banner and recovers by itself once the forward is back.
 
 A built-in `--pod <ns>/<name>` using client-go port-forward is planned. It will sit behind the same `admin.Client` interface.
 

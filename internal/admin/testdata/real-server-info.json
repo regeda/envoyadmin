@@ -43,8 +43,8 @@
   "skip_hot_restart_parent_stats": false
  },
  "node": {
-  "id": "txenvoy-capture",
-  "cluster": "txenvoy",
+  "id": "envoyadmin-capture",
+  "cluster": "envoyadmin",
   "user_agent_name": "envoy",
   "user_agent_build_version": {
    "version": {

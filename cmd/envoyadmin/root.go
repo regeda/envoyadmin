@@ -5,13 +5,13 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/regeda/txenvoy/internal/config"
+	"github.com/regeda/envoyadmin/internal/config"
 )
 
 func newRootCmd(version string) *cobra.Command {
 	cfg := config.Default()
 	cmd := &cobra.Command{
-		Use:           "txenvoy",
+		Use:           "envoyadmin",
 		Short:         "Real-time terminal UI for Envoy",
 		Args:          cobra.NoArgs,
 		SilenceUsage:  true,

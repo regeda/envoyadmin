@@ -9,8 +9,8 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
 
-	"github.com/regeda/txenvoy/internal/demo"
-	"github.com/regeda/txenvoy/internal/snapshot"
+	"github.com/regeda/envoyadmin/internal/demo"
+	"github.com/regeda/envoyadmin/internal/snapshot"
 )
 
 func hostsCluster() snapshot.Cluster {

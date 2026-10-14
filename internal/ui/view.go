@@ -3,7 +3,7 @@ package ui
 import (
 	"fmt"
 
-	"github.com/regeda/txenvoy/internal/snapshot"
+	"github.com/regeda/envoyadmin/internal/snapshot"
 )
 
 type resourceKind int

@@ -13,8 +13,8 @@ import (
 	adminv3 "github.com/envoyproxy/go-control-plane/envoy/admin/v3"
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 
-	"github.com/regeda/txenvoy/internal/admin"
-	"github.com/regeda/txenvoy/internal/demo"
+	"github.com/regeda/envoyadmin/internal/admin"
+	"github.com/regeda/envoyadmin/internal/demo"
 )
 
 func fetchFrom(t *testing.T, sc demo.Scenario) Snapshot {

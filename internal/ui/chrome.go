@@ -9,8 +9,8 @@ import (
 )
 
 const (
-	logoRow1 = "▀█▀ ▀▄▀ █▀▀ █▄ █ █ █ █▀█ █ █"
-	logoRow2 = " █  █ █ ██▄ █ ▀█ ▀▄▀ █▄█  █"
+	logoRow1 = "█▀▀ █▄ █ █ █ █▀█ █ █ ▄▀█ █▀▄ █▀▄▀█ █ █▄ █"
+	logoRow2 = "██▄ █ ▀█ ▀▄▀ █▄█  █  █▀█ █▄▀ █ ▀ █ █ █ ▀█"
 )
 
 var bannerStyle = lipgloss.NewStyle().
@@ -67,11 +67,11 @@ func renderTabRow(width int, tabs []headerTab) string {
 func renderHeader(width int, compact bool, conn1, conn2 string, tabs []headerTab) string {
 	tabLine := renderTabRow(width, tabs)
 	if compact {
-		return joinEnds(logoStyle.Render("txenvoy"), conn1, width) + "\n" + tabLine
+		return joinEnds(wordmarkStyle.Render("envoyadmin"), conn1, width) + "\n" + tabLine
 	}
 	return strings.Join([]string{
-		joinEnds(logoStyle.Render(logoRow1), conn1, width),
-		joinEnds(logoStyle.Render(logoRow2), conn2, width),
+		joinEnds(wordmarkStyle.Render(logoRow1), conn1, width),
+		joinEnds(wordmarkStyle.Render(logoRow2), conn2, width),
 		"",
 		tabLine,
 	}, "\n")

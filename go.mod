@@ -1,4 +1,4 @@
-module github.com/regeda/txenvoy
+module github.com/regeda/envoyadmin
 
 go 1.27
 

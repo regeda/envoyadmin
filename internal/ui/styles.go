@@ -3,7 +3,7 @@ package ui
 import (
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/regeda/txenvoy/internal/snapshot"
+	"github.com/regeda/envoyadmin/internal/snapshot"
 )
 
 var (
@@ -15,6 +15,8 @@ var (
 	// lineNumStyle is a notch darker than dimStyle so the config gutter recedes behind the YAML.
 	lineNumStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	logoStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Bold(true)
+	// wordmarkStyle colors the header logo; logoStyle stays cyan for the detail-pane marker.
+	wordmarkStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Bold(true)
 )
 
 func markerStyle(h snapshot.Health) lipgloss.Style {

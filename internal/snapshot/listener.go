@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/regeda/txenvoy/internal/admin"
+	"github.com/regeda/envoyadmin/internal/admin"
 )
 
 type ListenerStatus int

@@ -10,10 +10,10 @@ import (
 
 	"github.com/charmbracelet/x/exp/teatest"
 
-	"github.com/regeda/txenvoy/internal/admin"
-	"github.com/regeda/txenvoy/internal/config"
-	"github.com/regeda/txenvoy/internal/demo"
-	"github.com/regeda/txenvoy/internal/snapshot"
+	"github.com/regeda/envoyadmin/internal/admin"
+	"github.com/regeda/envoyadmin/internal/config"
+	"github.com/regeda/envoyadmin/internal/demo"
+	"github.com/regeda/envoyadmin/internal/snapshot"
 )
 
 // waitFor consumes the program output until every want string has appeared.

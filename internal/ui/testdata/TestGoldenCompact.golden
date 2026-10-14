@@ -1,4 +1,4 @@
-txenvoy                                                              ● connected  http://envoy:15000
+envoyadmin                                                           ● connected  http://envoy:15000
  [Clusters (6)]  Listeners (7) 
 / to filter                   │  orders-db  ·  Endpoints | Config                                   
 >● orders-d STRICT_DNS     0/2│2 hosts · 0 healthy · 2 ejected                                      
