@@ -1,0 +1,30 @@
+▀█▀ ▀▄▀ █▀▀ █▄ █ █ █ █▀█ █ █                                                             ● connected  http://envoy:15000
+ █  █ █ ██▄ █ ▀█ ▀▄▀ █▄█  █                                                                Envoy 1.31.0 · updated 2s ago
+
+  Clusters (6) 
+/ to filter                               │orders-db  ·  Endpoints | Config                                             
+>● orders-db          STRICT_DNS       0/2│version_info: 41   last_updated: 2026-10-14 10:00:00Z                        
+ ● api-gateway        EDS              2/3│'@type': type.googleapis.com/envoy.config.cluster.v3.Cluster                 
+ ● cache-redis        EDS              0/0│connect_timeout: 5s                                                          
+ ● local-agent        STATIC           1/1│name: orders-db                                                              
+ ● search             EDS              2/2│type: STRICT_DNS                                                             
+ ● xds_cluster        STATIC           1/1│                                                                             
+                                          │                                                                             
+                                          │                                                                             
+                                          │                                                                             
+                                          │                                                                             
+                                          │                                                                             
+                                          │                                                                             
+                                          │                                                                             
+                                          │                                                                             
+                                          │                                                                             
+                                          │                                                                             
+                                          │                                                                             
+                                          │                                                                             
+                                          │                                                                             
+                                          │                                                                             
+                                          │                                                                             
+                                          │                                                                             
+                                          │                                                                             
+                                          │                                                                             
+ 6 clusters · 2 unhealthy                               ? help · q quit · / filter · c config · e endpoints · r refresh 
