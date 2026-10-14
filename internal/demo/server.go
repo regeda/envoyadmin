@@ -75,7 +75,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if f.Garbage {
-		w.Write([]byte("{not json"))
+		_, _ = w.Write([]byte("{not json"))
 		return
 	}
 
@@ -86,16 +86,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "format=json required", http.StatusBadRequest)
 			return
 		}
-		w.Write(sc.ClustersJSON())
+		_, _ = w.Write(sc.ClustersJSON())
 	case "/config_dump":
 		b, ok := sc.ConfigDumpJSON(r.URL.Query().Get("resource"))
 		if !ok {
 			http.Error(w, "unsupported resource", http.StatusBadRequest)
 			return
 		}
-		w.Write(b)
+		_, _ = w.Write(b)
 	case "/server_info":
-		w.Write(sc.ServerInfoJSON())
+		_, _ = w.Write(sc.ServerInfoJSON())
 	default:
 		http.NotFound(w, r)
 	}
@@ -108,8 +108,8 @@ func (s *Server) Start() (string, func(), error) {
 		return "", nil, err
 	}
 	srv := &http.Server{Handler: s}
-	go srv.Serve(ln)
-	return "http://" + ln.Addr().String(), func() { srv.Close() }, nil
+	go func() { _ = srv.Serve(ln) }()
+	return "http://" + ln.Addr().String(), func() { _ = srv.Close() }, nil
 }
 
 // Jitter flips the first host of the "search" cluster between healthy and

@@ -63,7 +63,7 @@ func (h *HTTP) get(ctx context.Context, path string, q url.Values) ([]byte, erro
 	if err != nil {
 		return nil, fmt.Errorf("GET %s: %w", path, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode/100 != 2 {
 		return nil, fmt.Errorf("GET %s: %s", path, resp.Status)
 	}

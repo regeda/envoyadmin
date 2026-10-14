@@ -33,6 +33,7 @@ bin/txenvoy --admin http://localhost:15000
 |---|---|
 | `↑/↓`, `j/k` | move in the list, or scroll the focused detail pane |
 | `PgUp/PgDn`, `g/G` | page, jump to top / bottom |
+| `Ctrl+N` / `Ctrl+P` | move while typing in the filter |
 | `/` | fuzzy filter (`Enter` keeps it, `Esc` clears it) |
 | `Tab` | switch focus between list and detail |
 | `c` / `e` | Config / Endpoints tab |

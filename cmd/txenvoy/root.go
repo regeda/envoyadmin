@@ -29,7 +29,7 @@ func newRootCmd(version string) *cobra.Command {
 		Use:   "version",
 		Short: "Print the version",
 		Args:  cobra.NoArgs,
-		Run:   func(cmd *cobra.Command, _ []string) { fmt.Fprintln(cmd.OutOrStdout(), version) },
+		Run:   func(cmd *cobra.Command, _ []string) { _, _ = fmt.Fprintln(cmd.OutOrStdout(), version) },
 	})
 	return cmd
 }

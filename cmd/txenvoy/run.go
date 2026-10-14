@@ -15,6 +15,9 @@ import (
 )
 
 func run(ctx context.Context, cfg config.Config) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	if cfg.Demo {
 		srv := demo.NewServer(demo.Degraded())
 		url, stop, err := srv.Start()
@@ -34,7 +37,8 @@ func run(ctx context.Context, cfg config.Config) error {
 		Ctx:    ctx,
 		Config: cfg,
 		Fetch:  func(ctx context.Context) (snapshot.Snapshot, error) { return snapshot.Fetch(ctx, client) },
-		Color:  os.Getenv("NO_COLOR") == "",
+		// Color gates only the chroma YAML highlighting; lipgloss/termenv honours NO_COLOR itself.
+		Color: os.Getenv("NO_COLOR") == "",
 	})
 	_, err = tea.NewProgram(model, tea.WithAltScreen(), tea.WithContext(ctx)).Run()
 	if errors.Is(err, tea.ErrProgramKilled) || errors.Is(err, context.Canceled) {
