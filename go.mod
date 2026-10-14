@@ -1,6 +1,6 @@
 module github.com/regeda/txenvoy
 
-go 1.27.1
+go 1.27
 
 require (
 	github.com/alecthomas/chroma/v2 v2.27.0
