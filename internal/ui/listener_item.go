@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/regeda/txenvoy/internal/snapshot"
 )
@@ -79,26 +80,15 @@ func prop(label, value string) string {
 	return dimStyle.Render(pad(label, overviewLabelW)) + value
 }
 
-func orDashText(s string) string {
-	if s == "" {
-		return "-"
-	}
-	return s
-}
-
-func stateStyle(l snapshot.Listener) lipgloss.Style {
-	_, s := stateGlyph(l)
-	return s
-}
-
 // sticky returns the rows that never scroll: the four properties, the error
 // block (error state only) and the chain heading.
 func (it listenerItem) sticky(w int) []string {
 	l := it.l
+	_, stStyle := stateGlyph(l)
 	lines := []string{
-		prop("Bind address", orDashText(l.Address)),
-		prop("State", stateStyle(l).Render(l.StateText())),
-		prop("version_info", orDashText(l.VersionInfo)),
+		prop("Bind address", orDash(l.Address)),
+		prop("State", stStyle.Render(l.StateText())),
+		prop("version_info", orDash(l.VersionInfo)),
 	}
 	updated := "-"
 	if !l.LastUpdated.IsZero() {
@@ -107,8 +97,10 @@ func (it listenerItem) sticky(w int) []string {
 	lines = append(lines, prop("last_updated", updated))
 
 	if l.State == snapshot.ListenerError {
-		rows := wrapLines(sanitizeBannerText(l.ErrorDetails), max(w-overviewLabelW, 1), errorMaxRows)
+		valW := max(w-overviewLabelW, 1)
+		rows := wrapLines(sanitizeBannerText(l.ErrorDetails), valW, errorMaxRows)
 		for i, r := range rows {
+			r = strings.TrimRight(r, " ")
 			label := ""
 			if i == 0 {
 				label = "Error"
@@ -116,7 +108,10 @@ func (it listenerItem) sticky(w int) []string {
 			lines = append(lines, dimStyle.Render(pad(label, overviewLabelW))+badStyle.Render(r))
 		}
 		if l.ServingOld {
-			lines = append(lines, dimStyle.Render(pad("", overviewLabelW)+"still serving the previous configuration"))
+			// wrapped, never capped or ellipsised: this sentence must stay readable
+			for _, r := range strings.Split(ansi.Wrap("still serving the previous configuration", valW, ""), "\n") {
+				lines = append(lines, dimStyle.Render(pad("", overviewLabelW)+strings.TrimRight(r, " ")))
+			}
 		}
 	}
 	return append(lines, "", boldStyle.Render("Filter chains ("+strconv.Itoa(len(l.Chains))+")"))
@@ -148,8 +143,6 @@ func (it listenerItem) chainLines() []string {
 	return out
 }
 
-func clipRow(s string, w int) string { return truncEllipsis(s, w) }
-
 func (it listenerItem) OverviewMaxScroll(w, h int) int {
 	rows := h - len(it.sticky(w))
 	if rows <= 0 {
@@ -180,7 +173,7 @@ func (it listenerItem) Overview(w, h, scroll int) string {
 		lines = append(lines, "")
 	}
 	for i, l := range lines {
-		lines[i] = clipRow(l, w)
+		lines[i] = truncEllipsis(l, w)
 	}
 	return strings.Join(lines, "\n")
 }

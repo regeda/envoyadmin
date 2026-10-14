@@ -166,7 +166,7 @@ func TestListenerOverviewErrorBlock(t *testing.T) {
 	l := lst("bad", "0.0.0.0:9443", snapshot.ListenerError)
 	l.ErrorDetails = "error adding listener: unknown filter 'envoy.filters.network.nope' while processing LDS update version 9, then a lot more words to force wrapping across rows and beyond the cap of four lines for sure"
 	l.ServingOld = true
-	rows := overviewRows(item0(l), 60, 20, 0)
+	rows := overviewRows(item0(l), 50, 20, 0)
 	plain := make([]string, len(rows))
 	for i, r := range rows {
 		plain[i] = strings.TrimRight(ansiStrip(r), " ")
@@ -182,7 +182,7 @@ func TestListenerOverviewErrorBlock(t *testing.T) {
 		if strings.HasPrefix(r, "Error ") && first < 0 {
 			first = i
 		}
-		if strings.Contains(r, "still serving the previous configuration") {
+		if strings.Contains(r, "still serving") {
 			note = i
 		}
 	}
@@ -202,7 +202,7 @@ func TestListenerOverviewErrorBlock(t *testing.T) {
 	}
 
 	l.ServingOld = false
-	if strings.Contains(ansiStrip(strings.Join(overviewRows(item0(l), 60, 20, 0), "\n")), "still serving") {
+	if strings.Contains(ansiStrip(strings.Join(overviewRows(item0(l), 50, 20, 0), "\n")), "still serving") {
 		t.Fatal("the note appears only when an older version is still serving")
 	}
 }
@@ -248,15 +248,15 @@ func TestListenerOverviewMaxScrollMatchesRendering(t *testing.T) {
 		l.Chains = append(l.Chains, snapshot.FilterChain{Label: fmt.Sprintf("chain-%02d", i), Filters: []string{"tcp_proxy"}})
 	}
 	it := item0(l)
-	max := it.OverviewMaxScroll(60, 12)
-	if max <= 0 {
+	maxScroll := it.OverviewMaxScroll(60, 12)
+	if maxScroll <= 0 {
 		t.Fatal("a long chain list must scroll")
 	}
-	last := ansiStrip(strings.Join(overviewRows(it, 60, 12, max), "\n"))
+	last := ansiStrip(strings.Join(overviewRows(it, 60, 12, maxScroll), "\n"))
 	if !strings.Contains(last, "chain-19") {
 		t.Fatalf("scrolling to the max must reveal the last chain:\n%s", last)
 	}
-	beyond := ansiStrip(strings.Join(overviewRows(it, 60, 12, max+50), "\n"))
+	beyond := ansiStrip(strings.Join(overviewRows(it, 60, 12, maxScroll+50), "\n"))
 	if beyond != last {
 		t.Fatal("an oversized scroll clamps to the max")
 	}
@@ -370,5 +370,62 @@ func TestListenerStateColours(t *testing.T) {
 		if ov := it.Overview(40, 3, 0); !strings.Contains(ov, "\x1b["+col+"m") {
 			t.Fatalf("%v: the State value in the Overview carries colour %s: %q", state, col, ov)
 		}
+	}
+}
+
+func TestListenerStillServingNoteIsNeverClipped(t *testing.T) {
+	l := lst("bad", "0.0.0.0:9443", snapshot.ListenerError)
+	l.ErrorDetails = "boom"
+	l.ServingOld = true
+	it := item0(l)
+	for _, w := range []int{50, 51, 60, 84} {
+		rows := overviewRows(it, w, 20, 0)
+		var note []string
+		in := false
+		for _, r := range rows {
+			p := strings.TrimRight(ansiStrip(r), " ")
+			if strings.HasPrefix(strings.TrimSpace(p), "still") {
+				in = true
+			} else if p == "" {
+				in = false
+			}
+			if in {
+				if lipgloss.Width(p) > w {
+					t.Fatalf("w=%d: row too wide %q", w, p)
+				}
+				if strings.Contains(p, "…") {
+					t.Fatalf("w=%d: the note is clipped: %q", w, p)
+				}
+				note = append(note, strings.TrimSpace(p))
+			}
+		}
+		if got := strings.Join(note, " "); got != "still serving the previous configuration" {
+			t.Fatalf("w=%d: note = %q", w, got)
+		}
+	}
+}
+
+func TestListenerWrappedErrorRowsHaveNoTrailingSpaces(t *testing.T) {
+	l := lst("bad", "0.0.0.0:9443", snapshot.ListenerError)
+	l.ErrorDetails = strings.Repeat("boom ", 20)
+	for _, r := range overviewRows(item0(l), 60, 20, 0) {
+		if p := ansiStrip(r); strings.Contains(p, "boom") && strings.HasSuffix(p, " ") {
+			t.Fatalf("trailing space in a wrapped row: %q", r)
+		}
+	}
+}
+
+func TestListenerOverviewMaxScrollWithWrappedNote(t *testing.T) {
+	l := lst("x", "0.0.0.0:1", snapshot.ListenerError)
+	l.ErrorDetails = "boom"
+	l.ServingOld = true // wraps to two rows at width 50
+	for i := 0; i < 15; i++ {
+		l.Chains = append(l.Chains, snapshot.FilterChain{Label: fmt.Sprintf("chain-%02d", i), Filters: []string{"tcp_proxy"}})
+	}
+	it := item0(l)
+	last := ansiStrip(strings.Join(overviewRows(it, 50, 16, it.OverviewMaxScroll(50, 16)), "\n"))
+	rows := strings.Split(last, "\n")
+	if !strings.Contains(last, "chain-14") || !strings.Contains(rows[len(rows)-1], "tcp_proxy") {
+		t.Fatalf("max scroll must land exactly on the last chain:\n%s", last)
 	}
 }
