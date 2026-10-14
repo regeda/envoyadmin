@@ -294,7 +294,14 @@ func (m Model) bannerText() string {
 	return first + "\n" + m.err.Error() + "\n(retrying every " + m.opts.Config.Refresh.String() + ")"
 }
 
+// helpLine lists every key. The ones people rarely guess come first, so a
+// narrow terminal that clips the end still shows how to close help and quit.
+const helpLine = "x dismiss  r refresh  ? close  q quit  tab/shift+tab  enter  esc  ↑↓/jk g/G PgUp/PgDn  / filter  c config  o/e overview"
+
 func (m Model) statusLine() string {
+	if m.help {
+		return renderStatus(m.width, " "+helpLine, "") // the summary gives way to the keys
+	}
 	left := " " + resources[m.active].summary(m.snap)
 	if m.inflight {
 		left += " ↻"
@@ -303,9 +310,6 @@ func (m Model) statusLine() string {
 	if m.focus == focusDetail {
 		left += " · focus: detail"
 		right = "esc back · ↑↓ scroll · c config · o overview · q quit "
-	}
-	if m.help {
-		right = "tab switch · enter details · esc back · ↑↓/jk move · / filter · c config · o overview · r refresh · x dismiss · q quit "
 	}
 	return renderStatus(m.width, left, right)
 }

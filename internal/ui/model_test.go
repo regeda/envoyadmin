@@ -393,3 +393,44 @@ func TestZeroFetchedAtFallsBackToClock(t *testing.T) {
 		t.Fatal("a failure after a success must not say never connected")
 	}
 }
+
+func helpStatus(t *testing.T, w int, detail bool) string {
+	t.Helper()
+	m := sized(New(testOpts(nil)), w, 30)
+	m = send(m, snapshotMsg{snap: snap(cl("api", 1, 1))})
+	if detail {
+		m = send(m, key("enter"))
+	}
+	m = send(m, key("?"))
+	lines := strings.Split(m.View(), "\n")
+	status := ansi.Strip(lines[len(lines)-1])
+	if lipgloss.Width(status) > w {
+		t.Fatalf("w=%d: status is %d wide", w, lipgloss.Width(status))
+	}
+	return status
+}
+
+func TestHelpLineShowsEveryKeyFrom120Columns(t *testing.T) {
+	every := []string{"tab/shift+tab", "enter", "esc", "↑↓/jk", "g/G", "PgUp/PgDn", "/ filter", "c config", "o/e overview", "r refresh", "x dismiss", "? close", "q quit"}
+	for _, w := range []int{120, 140, 200} {
+		for _, detail := range []bool{false, true} {
+			status := helpStatus(t, w, detail)
+			for _, want := range every {
+				if !strings.Contains(status, want) {
+					t.Fatalf("w=%d detail=%v: help line misses %q: %q", w, detail, want, status)
+				}
+			}
+		}
+	}
+}
+
+func TestHelpLineKeepsTheRarelyKnownKeysWhenNarrow(t *testing.T) {
+	for w, want := range map[int][]string{100: {"q quit", "x dismiss", "r refresh", "? close"}, 80: {"q quit", "? close", "x dismiss"}} {
+		status := helpStatus(t, w, false)
+		for _, f := range want {
+			if !strings.Contains(status, f) {
+				t.Fatalf("w=%d: help line misses %q: %q", w, f, status)
+			}
+		}
+	}
+}
