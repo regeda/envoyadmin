@@ -65,7 +65,7 @@ type ClusterConfig struct {
 ```
 
 - The HTTP implementation takes the base URL and a request timeout (from `--timeout`) and applies the timeout to every call through a per-call context.
-- `/clusters?format=json` is decoded as `envoy.admin.v3.Clusters`. `ClusterConfigs` calls `/config_dump?resource=dynamic_active_clusters` and `/config_dump?resource=static_clusters` and walks the result as raw JSON, so a cluster whose config holds an `Any` type that is not compiled in never fails the fetch. The snapshot renders each cluster's JSON to YAML with `yaml.JSONToYAML`.
+- `/clusters?format=json` is decoded as `envoy.admin.v3.Clusters`. `ClusterConfigs` calls `/config_dump?resource=dynamic_active_clusters` and `/config_dump?resource=static_clusters` and walks the result as raw JSON, so a cluster whose config holds an `Any` type that is not compiled in never fails the fetch. With `resource=`, Envoy emits one `configs[]` element per cluster, typed `type.googleapis.com/envoy.admin.v3.ClustersConfigDump.DynamicCluster` or `.StaticCluster`, with `version_info`, `cluster` and `last_updated` at the element's top level (the Static flag comes from that type). A plain `/config_dump` instead returns one wrapped `ClustersConfigDump` with nested `dynamic_active_clusters` / `static_clusters` arrays; the walker keeps that as a fallback. Elements that are not objects, have a non-string or unrelated `@type`, or whose `cluster` is missing, null, empty or nameless are skipped, never failing the decode. The snapshot renders each cluster's JSON to YAML with `yaml.JSONToYAML`.
 - A port-forward transport can later supply the `http.Client` or implement `Client` itself without UI changes.
 
 ### 3.2 snapshot
@@ -231,7 +231,7 @@ No timeout or interval is a constant. They flow through `Config`, so tests pass 
 
 ## 8. Testing
 
-Fixtures live in `internal/demo/testdata/` (real-shaped JSON for `/clusters?format=json`, `/config_dump?resource=dynamic_active_clusters` and `/server_info`):
+Fixtures are Go builders in `internal/demo` (scenarios, emitting the per-element `config_dump` shape above) plus genuine captures from Envoy 1.31.10 in `internal/admin/testdata/real-*.json` (`/clusters?format=json`, `/config_dump?resource=dynamic_active_clusters`, `/config_dump?resource=static_clusters`, `/server_info`), which the admin and snapshot tests decode. The scenarios are:
 
 - `healthy`: all hosts OK.
 - `degraded`: `FAILED_ACTIVE_HC`, `FAILED_OUTLIER_CHECK` and `EDS_STATUS_UNHEALTHY` mixed.

@@ -3,7 +3,9 @@ package snapshot
 import (
 	"context"
 	"errors"
+	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -172,5 +174,133 @@ func TestFlagsOf(t *testing.T) {
 	}
 	if !IsUnhealthyFlag("FAILED_OUTLIER_CHECK") || IsUnhealthyFlag("DEGRADED_ACTIVE_HC") || IsUnhealthyFlag("PENDING_ACTIVE_HC") {
 		t.Fatal("IsUnhealthyFlag misclassifies")
+	}
+}
+
+// envoyServer serves canned admin responses through the real HTTP client.
+func envoyServer(t *testing.T, files map[string]string) *admin.HTTP {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		key := r.URL.Path
+		if res := r.URL.Query().Get("resource"); res != "" {
+			key += "?resource=" + res
+		}
+		body, ok := files[key]
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(srv.Close)
+	c, err := admin.NewHTTP(srv.URL, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+func capturedFile(t *testing.T, name string) string {
+	t.Helper()
+	b, err := os.ReadFile("../admin/testdata/" + name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func checkRealShapeJoin(t *testing.T, files map[string]string) {
+	t.Helper()
+	snap, err := Fetch(context.Background(), envoyServer(t, files))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := byName(snap)
+	for name, want := range map[string]struct {
+		typ, version string
+		static       bool
+	}{
+		"api":    {"STATIC", "", true},
+		"orders": {"STRICT_DNS", "7", false},
+		"agg":    {"envoy.clusters.aggregate", "7", false},
+	} {
+		c, ok := m[name]
+		if !ok {
+			t.Fatalf("%s missing from %v", name, m)
+		}
+		if c.Type == "?" || c.Type != want.typ || c.Config.Err != "" || c.Config.YAML == "" ||
+			c.Config.VersionInfo != want.version || c.Config.Static != want.static ||
+			!strings.Contains(c.Config.YAML, "name: "+name) || c.Config.LastUpdated.IsZero() {
+			t.Fatalf("%s: type=%q config=%+v", name, c.Type, c.Config)
+		}
+	}
+}
+
+// Genuine Envoy 1.31.10 captures, served through the real client.
+func TestFetchFromRealCaptures(t *testing.T) {
+	checkRealShapeJoin(t, map[string]string{
+		"/clusters": capturedFile(t, "real-clusters.json"),
+		"/config_dump?resource=dynamic_active_clusters": capturedFile(t, "real-config-dynamic.json"),
+		"/config_dump?resource=static_clusters":         capturedFile(t, "real-config-static.json"),
+		"/server_info":                                  capturedFile(t, "real-server-info.json"),
+	})
+}
+
+// Hand-written per-element shape (from Envoy's addResourceToDump behaviour,
+// not captured), independent of internal/demo.
+func TestFetchFromPerElementShape(t *testing.T) {
+	const cl = `"cluster":{"@type":"type.googleapis.com/envoy.config.cluster.v3.Cluster",`
+	const el = `"@type":"type.googleapis.com/envoy.admin.v3.ClustersConfigDump.`
+	checkRealShapeJoin(t, map[string]string{
+		"/clusters": `{"cluster_statuses":[{"name":"api"},{"name":"orders"},{"name":"agg"}]}`,
+		"/config_dump?resource=dynamic_active_clusters": `{"configs":[
+		 {` + el + `DynamicCluster","version_info":"7","last_updated":"2026-10-14T01:00:00Z",` + cl + `"name":"orders","type":"STRICT_DNS"}},
+		 {` + el + `DynamicCluster","version_info":"7","last_updated":"2026-10-14T01:00:00Z",` + cl + `"name":"agg","cluster_type":{"name":"envoy.clusters.aggregate"}}}]}`,
+		"/config_dump?resource=static_clusters": `{"configs":[
+		 {` + el + `StaticCluster","last_updated":"2026-10-14T01:00:00Z",` + cl + `"name":"api"}}]}`,
+	})
+}
+
+func TestClusterMissingFromConfigDump(t *testing.T) {
+	snap, err := Fetch(context.Background(), envoyServer(t, map[string]string{
+		"/clusters": `{"cluster_statuses":[{"name":"ghost"}]}`,
+		"/config_dump?resource=dynamic_active_clusters": `{}`,
+		"/config_dump?resource=static_clusters":         `{}`,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := byName(snap)["ghost"]
+	if g.Type != "?" || g.Config.Err != "config unavailable: not present in config_dump" || g.Config.YAML != "" {
+		t.Fatalf("%+v", g)
+	}
+}
+
+type fixedConfigs struct {
+	admin.Client
+	cfgs []admin.ClusterConfig
+}
+
+func (f fixedConfigs) ClusterConfigs(context.Context) ([]admin.ClusterConfig, error) {
+	return f.cfgs, nil
+}
+
+func TestYAMLRenderErrorIsReportedPerCluster(t *testing.T) {
+	real := envoyServer(t, map[string]string{
+		"/clusters": `{"cluster_statuses":[{"name":"bad"},{"name":"fine"}]}`,
+	})
+	snap, err := Fetch(context.Background(), fixedConfigs{Client: real, cfgs: []admin.ClusterConfig{
+		{Name: "bad", Type: "EDS", JSON: []byte("{not json")},
+		{Name: "fine", Type: "EDS", JSON: []byte(`{"name":"fine"}`)},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := byName(snap)
+	if b := m["bad"]; !strings.HasPrefix(b.Config.Err, "config unavailable: render yaml:") || b.Config.YAML != "" {
+		t.Fatalf("bad: %+v", b.Config)
+	}
+	if f := m["fine"]; f.Config.Err != "" || !strings.Contains(f.Config.YAML, "name: fine") {
+		t.Fatalf("fine: %+v", f.Config)
 	}
 }

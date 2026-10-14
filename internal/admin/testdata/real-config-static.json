@@ -1,0 +1,89 @@
+{
+ "configs": [
+  {
+   "@type": "type.googleapis.com/envoy.admin.v3.ClustersConfigDump.StaticCluster",
+   "cluster": {
+    "@type": "type.googleapis.com/envoy.config.cluster.v3.Cluster",
+    "name": "api",
+    "type": "STATIC",
+    "connect_timeout": "1s",
+    "load_assignment": {
+     "cluster_name": "api",
+     "endpoints": [
+      {
+       "locality": {
+        "zone": "zone-a"
+       },
+       "lb_endpoints": [
+        {
+         "endpoint": {
+          "address": {
+           "socket_address": {
+            "address": "10.0.0.1",
+            "port_value": 8080
+           }
+          }
+         }
+        },
+        {
+         "endpoint": {
+          "address": {
+           "socket_address": {
+            "address": "10.0.0.2",
+            "port_value": 8080
+           }
+          }
+         },
+         "load_balancing_weight": 2
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "last_updated": "2026-10-14T01:29:05.432Z"
+  },
+  {
+   "@type": "type.googleapis.com/envoy.admin.v3.ClustersConfigDump.StaticCluster",
+   "cluster": {
+    "@type": "type.googleapis.com/envoy.config.cluster.v3.Cluster",
+    "name": "empty",
+    "type": "STATIC",
+    "connect_timeout": "1s",
+    "load_assignment": {
+     "cluster_name": "empty"
+    }
+   },
+   "last_updated": "2026-10-14T01:29:05.432Z"
+  },
+  {
+   "@type": "type.googleapis.com/envoy.admin.v3.ClustersConfigDump.StaticCluster",
+   "cluster": {
+    "@type": "type.googleapis.com/envoy.config.cluster.v3.Cluster",
+    "name": "search",
+    "type": "STATIC",
+    "connect_timeout": "1s",
+    "load_assignment": {
+     "cluster_name": "search",
+     "endpoints": [
+      {
+       "lb_endpoints": [
+        {
+         "endpoint": {
+          "address": {
+           "socket_address": {
+            "address": "10.0.0.3",
+            "port_value": 9200
+           }
+          }
+         }
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "last_updated": "2026-10-14T01:29:05.432Z"
+  }
+ ]
+}

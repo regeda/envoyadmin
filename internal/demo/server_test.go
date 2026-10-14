@@ -40,9 +40,13 @@ func TestEndpointsServeValidJSON(t *testing.T) {
 		t.Fatalf("got %d statuses", len(clusters.ClusterStatuses))
 	}
 
-	for _, res := range []string{"dynamic_active_clusters", "static_clusters"} {
+	// Envoy emits one configs[] element per cluster, typed by the resource.
+	for res, elem := range map[string]string{
+		"dynamic_active_clusters": "ClustersConfigDump.DynamicCluster",
+		"static_clusters":         "ClustersConfigDump.StaticCluster",
+	} {
 		code, body = get(t, srv.URL+"/config_dump?resource="+res)
-		if code != 200 || !strings.Contains(body, "ClustersConfigDump") || !strings.Contains(body, res) {
+		if code != 200 || !strings.Contains(body, elem) || strings.Contains(body, res) {
 			t.Fatalf("%s: %d %s", res, code, body)
 		}
 	}

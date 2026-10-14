@@ -1,0 +1,57 @@
+{
+ "configs": [
+  {
+   "@type": "type.googleapis.com/envoy.admin.v3.ClustersConfigDump.DynamicCluster",
+   "version_info": "7",
+   "cluster": {
+    "@type": "type.googleapis.com/envoy.config.cluster.v3.Cluster",
+    "name": "agg",
+    "connect_timeout": "1s",
+    "lb_policy": "CLUSTER_PROVIDED",
+    "cluster_type": {
+     "name": "envoy.clusters.aggregate",
+     "typed_config": {
+      "@type": "type.googleapis.com/envoy.extensions.clusters.aggregate.v3.ClusterConfig",
+      "clusters": [
+       "orders"
+      ]
+     }
+    }
+   },
+   "last_updated": "2026-10-14T01:29:05.435Z"
+  },
+  {
+   "@type": "type.googleapis.com/envoy.admin.v3.ClustersConfigDump.DynamicCluster",
+   "version_info": "7",
+   "cluster": {
+    "@type": "type.googleapis.com/envoy.config.cluster.v3.Cluster",
+    "name": "orders",
+    "type": "STRICT_DNS",
+    "connect_timeout": "1s",
+    "load_assignment": {
+     "cluster_name": "orders",
+     "endpoints": [
+      {
+       "locality": {
+        "zone": "zone-b"
+       },
+       "lb_endpoints": [
+        {
+         "endpoint": {
+          "address": {
+           "socket_address": {
+            "address": "127.0.0.1",
+            "port_value": 5432
+           }
+          }
+         }
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "last_updated": "2026-10-14T01:29:05.435Z"
+  }
+ ]
+}

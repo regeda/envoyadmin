@@ -85,12 +85,14 @@ func metric(name string, v uint64, typ string) map[string]any {
 	return map[string]any{"name": name, "value": strconv.FormatUint(v, 10), "type": typ}
 }
 
-// ConfigDumpJSON returns the dump for "dynamic_active_clusters" or "static_clusters".
+// ConfigDumpJSON returns the dump for "dynamic_active_clusters" or
+// "static_clusters" in the shape Envoy uses for ?resource=: one configs[]
+// element per cluster, typed ClustersConfigDump.DynamicCluster or .StaticCluster.
 func (s Scenario) ConfigDumpJSON(resource string) ([]byte, bool) {
 	if resource != "dynamic_active_clusters" && resource != "static_clusters" {
 		return nil, false
 	}
-	entries := []any{}
+	configs := []any{}
 	for _, c := range s.Clusters {
 		if c.Static != (resource == "static_clusters") {
 			continue
@@ -103,16 +105,19 @@ func (s Scenario) ConfigDumpJSON(resource string) ([]byte, bool) {
 		if c.Type != "" {
 			cl["type"] = c.Type
 		}
-		e := map[string]any{"cluster": cl, "last_updated": s.Updated.Format(time.RFC3339Nano)}
-		if !c.Static {
+		e := map[string]any{
+			"@type":        "type.googleapis.com/envoy.admin.v3.ClustersConfigDump.DynamicCluster",
+			"cluster":      cl,
+			"last_updated": s.Updated.Format(time.RFC3339Nano),
+		}
+		if c.Static {
+			e["@type"] = "type.googleapis.com/envoy.admin.v3.ClustersConfigDump.StaticCluster"
+		} else {
 			e["version_info"] = c.Version
 		}
-		entries = append(entries, e)
+		configs = append(configs, e)
 	}
-	return mustJSON(map[string]any{"configs": []any{map[string]any{
-		"@type":  "type.googleapis.com/envoy.admin.v3.ClustersConfigDump",
-		resource: entries,
-	}}}), true
+	return mustJSON(map[string]any{"configs": configs}), true
 }
 
 func (s Scenario) ServerInfoJSON() []byte {
