@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/regeda/txenvoy/internal/snapshot"
 )
@@ -250,5 +251,157 @@ func TestPlainYAMLHasNoEscapesWhenColorOff(t *testing.T) {
 	d2.SetCluster(configCluster(), true)
 	if !strings.Contains(d2.cfgOut, "\x1b[") {
 		t.Fatal("color on must highlight")
+	}
+}
+
+func longYAML() string {
+	y := "key: " + strings.Repeat("v", 200) + "\n"
+	for i := 0; i < 20; i++ {
+		y += "item" + string(rune('a'+i)) + ": " + strings.Repeat("w", 100) + "\n"
+	}
+	return y + "last: z\n"
+}
+
+func rowsOf(v string) []string { return strings.Split(v, "\n") }
+
+func rowIndex(rows []string, sub string) int {
+	for i, r := range rows {
+		if strings.Contains(ansi.Strip(r), sub) {
+			return i
+		}
+	}
+	return -1
+}
+
+func TestLongLineIsOneRowClippedAtBoundary(t *testing.T) {
+	d := newDetailPane(false)
+	d.SetSize(30, 10)
+	c := configCluster()
+	c.Config.YAML = longYAML()
+	d.SetCluster(c, true)
+	d.SetTab(tabConfig)
+	rows := rowsOf(d.View())
+	if len(rows) != 10 {
+		t.Fatalf("rows %d", len(rows))
+	}
+	// row 0 tab line, row 1 header, row 2 the long line, row 3 the next line
+	if got := rowIndex(rows, "key: "); got != 2 {
+		t.Fatalf("key row %d\n%s", got, strings.Join(rows, "\n"))
+	}
+	if got := rowIndex(rows, "itema:"); got != 3 {
+		t.Fatalf("itema row %d, long line wrapped?\n%s", got, strings.Join(rows, "\n"))
+	}
+	if w := lipgloss.Width(rows[2]); w != 30 {
+		t.Fatalf("clipped row width %d, want 30", w)
+	}
+	if n := strings.Count(rows[2], "v"); n != 30-len("key: ") {
+		t.Fatalf("v count %d: tail of long value leaked", n)
+	}
+	// every later line is reachable by scrolling
+	for i := 0; i < 10; i++ {
+		d.HandleKey(key("pgdown"))
+	}
+	if !strings.Contains(d.View(), "last: z") {
+		t.Fatalf("last line unreachable:\n%s", d.View())
+	}
+}
+
+func TestLongLineColorIsCutCleanly(t *testing.T) {
+	d := newDetailPane(true)
+	d.SetSize(30, 10)
+	c := configCluster()
+	c.Config.YAML = longYAML()
+	d.SetCluster(c, true)
+	d.SetTab(tabConfig)
+	rows := rowsOf(d.View())
+	if got := rowIndex(rows, "itema:"); got != 3 {
+		t.Fatalf("itema row %d\n%s", got, strings.Join(rows, "\n"))
+	}
+	plain := "key: " + strings.Repeat("v", 200)
+	for i, r := range rows {
+		if lipgloss.Width(r) > 30 {
+			t.Fatalf("row %d width %d", i, lipgloss.Width(r))
+		}
+		if strings.Contains(ansi.Strip(r), "\x1b") {
+			t.Fatalf("row %d broken escape: %q", i, r)
+		}
+	}
+	if !strings.Contains(rows[2], "\x1b[") {
+		t.Fatalf("expected highlighted row: %q", rows[2])
+	}
+	got := strings.TrimRight(ansi.Strip(rows[2]), " ")
+	if got != plain[:30] {
+		t.Fatalf("row 2 = %q, want %q", got, plain[:30])
+	}
+}
+
+func TestLongNameAndHeaderStayOneRow(t *testing.T) {
+	d := newDetailPane(false)
+	d.SetSize(30, 10)
+	c := configCluster()
+	c.Name = strings.Repeat("n", 50)
+	c.Config.VersionInfo = "2026-10-14T10:00:00Z/abcdef"
+	d.SetCluster(c, true)
+	d.SetTab(tabConfig)
+	rows := rowsOf(d.View())
+	if len(rows) != 10 {
+		t.Fatalf("rows %d", len(rows))
+	}
+	if got := rowIndex(rows, "name: api"); got != 2 {
+		t.Fatalf("yaml starts at row %d, tab/header wrapped?\n%s", got, strings.Join(rows, "\n"))
+	}
+	if !strings.HasPrefix(ansi.Strip(rows[1]), "version_info: 2026") {
+		t.Fatalf("header row: %q", rows[1])
+	}
+	d.SetTab(tabEndpoints)
+	rows = rowsOf(d.View())
+	if len(rows) != 10 {
+		t.Fatalf("endpoints rows %d", len(rows))
+	}
+	for i, r := range rows {
+		if lipgloss.Width(r) > 30 {
+			t.Fatalf("row %d width %d", i, lipgloss.Width(r))
+		}
+	}
+}
+
+func TestResizeRetruncatesWithoutRehighlight(t *testing.T) {
+	d := newDetailPane(true)
+	d.SetSize(30, 10)
+	c := configCluster()
+	c.Config.YAML = longYAML()
+	d.SetCluster(c, true)
+	d.SetTab(tabConfig)
+	d.SetSize(60, 10)
+	rows := rowsOf(d.View())
+	if w := lipgloss.Width(rows[2]); w != 60 {
+		t.Fatalf("after widening row width %d, want 60", w)
+	}
+	if d.highlights != 1 {
+		t.Fatalf("resize re-ran chroma: %d", d.highlights)
+	}
+}
+
+func TestDisappearThenReappearResetsScroll(t *testing.T) {
+	c := configCluster()
+	c.Config.YAML = longYAML()
+	c.Hosts = nil
+	for i := 0; i < 40; i++ {
+		c.Hosts = append(c.Hosts, snapshot.Host{Address: "10.0.1." + string(rune('a'+i%26)) + string(rune('a'+i/26)) + ":80"})
+	}
+	for _, tb := range []tab{tabEndpoints, tabConfig} {
+		d := newDetail(false)
+		d.SetCluster(c, true)
+		d.SetTab(tb)
+		top := d.View()
+		d.HandleKey(key("pgdown"))
+		if d.View() == top {
+			t.Fatalf("tab %d: did not scroll", tb)
+		}
+		d.SetCluster(snapshot.Cluster{}, false)
+		d.SetCluster(c, true)
+		if d.View() != top {
+			t.Fatalf("tab %d: scroll kept after disappear/reappear", tb)
+		}
 	}
 }

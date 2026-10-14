@@ -40,6 +40,7 @@ func (d *detailPane) SetSize(w, h int) {
 	d.width, d.height = w, h
 	d.vp.Width = max(w, 1)
 	d.vp.Height = max(h-2, 1)
+	d.applyContent() // re-clip to the new width; never re-runs chroma
 }
 
 func (d *detailPane) SetTab(t tab) { d.tab = t }
@@ -47,6 +48,8 @@ func (d *detailPane) SetTab(t tab) { d.tab = t }
 func (d *detailPane) SetCluster(c snapshot.Cluster, ok bool) {
 	if !ok {
 		d.has, d.cluster = false, snapshot.Cluster{}
+		d.cfgName = "" // a reappearing cluster is treated as new
+		d.vp.GotoTop()
 		return
 	}
 	if !d.has || d.cluster.Name != c.Name {
@@ -64,16 +67,33 @@ func (d *detailPane) syncConfig() {
 		d.cfgOut = highlightYAML(c.Config.YAML, d.color)
 		d.cfgName, d.cfgYAML = c.Name, c.Config.YAML
 		d.highlights++
-		d.vp.SetContent(d.cfgOut)
+		d.applyContent()
 		if nameChanged {
 			d.vp.GotoTop()
 		}
+		return
 	}
-	if c.Config.Err != "" {
-		d.vp.SetContent(dimStyle.Render(c.Config.Err))
-	} else {
-		d.vp.SetContent(d.cfgOut)
+	d.applyContent()
+}
+
+// clipLines cuts every line to w cells so each logical line is one rendered row.
+func clipLines(s string, w int) string {
+	lines := strings.Split(s, "\n")
+	for i, l := range lines {
+		lines[i] = trunc(l, w)
 	}
+	return strings.Join(lines, "\n")
+}
+
+// applyContent feeds the viewport the (cached) highlighted YAML or the error,
+// clipped to the current width.
+func (d *detailPane) applyContent() {
+	w := max(d.width, 1)
+	if d.cluster.Config.Err != "" {
+		d.vp.SetContent(clipLines(dimStyle.Render(d.cluster.Config.Err), w))
+		return
+	}
+	d.vp.SetContent(clipLines(d.cfgOut, w))
 }
 
 func (d *detailPane) HandleKey(k tea.KeyMsg) {
@@ -128,15 +148,16 @@ func (d detailPane) configHeader() string {
 }
 
 func (d detailPane) View() string {
+	w, h := max(d.width, 1), max(d.height, 1)
 	var body string
 	switch {
 	case !d.has:
 		body = dimStyle.Render("no cluster selected")
 	case d.tab == tabConfig:
-		body = d.tabLine() + "\n" + d.configHeader() + "\n" + d.vp.View()
+		body = trunc(d.tabLine(), w) + "\n" + trunc(d.configHeader(), w) + "\n" + d.vp.View()
 	default:
-		body = d.tabLine() + "\n" + renderEndpoints(d.cluster, d.width, d.height-1, d.scroll)
+		body = trunc(d.tabLine(), w) + "\n" + renderEndpoints(d.cluster, d.width, d.height-1, d.scroll)
 	}
-	w, h := max(d.width, 1), max(d.height, 1)
-	return lipgloss.NewStyle().Width(w).MaxWidth(w).Height(h).MaxHeight(h).Render(body)
+	// No Width(): it would wrap. Every line is already clipped to w.
+	return lipgloss.NewStyle().MaxWidth(w).Height(h).MaxHeight(h).Render(body)
 }
