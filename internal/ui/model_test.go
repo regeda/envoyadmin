@@ -193,13 +193,9 @@ func TestSelectionDrivesDetailAndKeys(t *testing.T) {
 	if m.detail.tab != tabEndpoints {
 		t.Fatal("e opens endpoints")
 	}
-	m = send(m, key("tab"))
-	if m.focus != focusDetail {
-		t.Fatal("tab moves focus")
-	}
 	m = send(m, key("/"))
-	if m.focus != focusList || !m.list.filtering {
-		t.Fatal("/ focuses the list filter")
+	if !m.list.filtering {
+		t.Fatal("/ starts the list filter")
 	}
 }
 

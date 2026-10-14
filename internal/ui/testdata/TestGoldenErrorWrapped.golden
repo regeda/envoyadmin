@@ -2,7 +2,7 @@
  GET /clusters: Get "http://localhost:15000/clusters?format=json": dial tcp               
  127.0.0.1:15000: connect: connection refused                                             
  (retrying every 3s)                                                                      
-/ to filter                    │  orders-db  ·  Endpoints | Config                        
+/ to filter                    │orders-db  ·  Endpoints | Config                          
 >● orders-d STRICT_DNS      0/2│2 hosts · 0 healthy · 2 ejected                           
  ● api-gate EDS             2/3│ADDRESS        FLAGS            RQ_ACTIVE RQ_ERR CX_ACTIVE
  ● cache-re EDS             0/0│10.0.2.21:5432 FAILED_OUTLIER_… 0         4      0        

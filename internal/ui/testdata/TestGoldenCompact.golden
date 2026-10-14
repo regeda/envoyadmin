@@ -1,6 +1,6 @@
 txenvoy                                                              ● connected  http://envoy:15000
   Clusters (6) 
-/ to filter                        │  orders-db  ·  Endpoints | Config                              
+/ to filter                        │orders-db  ·  Endpoints | Config                                
 >● orders-db   STRICT_DNS       0/2│2 hosts · 0 healthy · 2 ejected                                 
  ● api-gateway EDS              2/3│ADDRESS        FLAGS                RQ_ACTIVE RQ_ERR CX_ACTIVE  
  ● cache-redis EDS              0/0│10.0.2.21:5432 FAILED_OUTLIER_CHECK 0         4      0          

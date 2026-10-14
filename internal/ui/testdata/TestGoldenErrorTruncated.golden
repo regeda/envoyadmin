@@ -2,7 +2,7 @@
  decode failure in a very long message decode failure in a very long message    
  decode failure in a very long message decode failure in a very long message    
  decode failure in a very long message decode failure in a very long message…   
-/ to filter                 │  orders-db  ·  Endpoints | Config                 
+/ to filter                 │orders-db  ·  Endpoints | Config                   
 >● orders-d STRICT_D     0/2│2 hosts · 0 healthy · 2 ejected                    
  ● api-gate EDS          2/3│ADDRESS        FLAGS     RQ_ACTIVE RQ_ERR CX_ACTIVE
  ● cache-re EDS          0/0│10.0.2.21:5432 FAILED_O… 0         4      0        

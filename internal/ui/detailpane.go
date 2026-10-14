@@ -25,7 +25,6 @@ type detailPane struct {
 	scroll        int // endpoints tab
 	vp            viewport.Model
 	color         bool
-	focused       bool
 
 	cfgName, cfgYAML, cfgOut string
 	highlights               int
@@ -45,10 +44,6 @@ func (d *detailPane) SetSize(w, h int) {
 }
 
 func (d *detailPane) SetTab(t tab) { d.tab = t }
-
-// SetFocused marks the pane as owning the keyboard; its tab line then starts
-// with a ▌ marker (a blank of the same width otherwise, so nothing shifts).
-func (d *detailPane) SetFocused(f bool) { d.focused = f }
 
 func (d *detailPane) SetCluster(c snapshot.Cluster, ok bool) {
 	if !ok {
@@ -134,11 +129,7 @@ func (d detailPane) tabLine() string {
 		}
 		return dimStyle.Render(name)
 	}
-	marker := "  "
-	if d.focused {
-		marker = logoStyle.Render("▌") + " "
-	}
-	return marker + boldStyle.Render(d.cluster.Name) + "  ·  " +
+	return boldStyle.Render(d.cluster.Name) + "  ·  " +
 		label("Endpoints", d.tab == tabEndpoints) + " " + dimStyle.Render("|") + " " + label("Config", d.tab == tabConfig)
 }
 
