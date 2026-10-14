@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -13,6 +14,7 @@ type Fault struct {
 	Status  int           // respond with this HTTP status
 	Delay   time.Duration // wait before responding
 	Garbage bool          // respond 200 with invalid JSON
+	Match   string        // fault only requests whose RequestURI contains this; empty means all
 }
 
 type Server struct {
@@ -48,8 +50,36 @@ func (s *Server) Update(fn func(*Scenario)) {
 		}
 		cp.Clusters[i] = c
 	}
+	cp.Listeners = make([]Listener, len(s.sc.Listeners))
+	for i, l := range s.sc.Listeners {
+		l.Chains = make([]Chain, len(s.sc.Listeners[i].Chains))
+		for j, c := range s.sc.Listeners[i].Chains {
+			l.Chains[j] = c.clone()
+		}
+		if l.Default != nil {
+			d := l.Default.clone()
+			l.Default = &d
+		}
+		cp.Listeners[i] = l
+	}
 	fn(&cp)
 	s.sc = cp
+}
+
+// clone deep-copies a chain, including its match map and string slices.
+func (c Chain) clone() Chain {
+	c.Filters = append([]string(nil), c.Filters...)
+	if c.Match != nil {
+		m := make(map[string]any, len(c.Match))
+		for k, v := range c.Match {
+			if ss, ok := v.([]string); ok {
+				v = append([]string(nil), ss...)
+			}
+			m[k] = v
+		}
+		c.Match = m
+	}
+	return c
 }
 
 func (s *Server) Inject(f Fault) {
@@ -62,6 +92,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	sc, f := s.sc, s.fault
 	s.mu.Unlock()
+	if f.Match != "" && !strings.Contains(r.URL.RequestURI(), f.Match) {
+		f = Fault{}
+	}
 
 	if f.Delay > 0 {
 		select {

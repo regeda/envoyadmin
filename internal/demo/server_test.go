@@ -175,3 +175,160 @@ func TestJitterTogglesHealth(t *testing.T) {
 	}
 	t.Fatal("jitter never changed the cluster health")
 }
+
+func TestListenerDumpsUsePerElementShape(t *testing.T) {
+	s := Degraded()
+	dyn, ok := s.ConfigDumpJSON("dynamic_listeners")
+	if !ok {
+		t.Fatal("dynamic_listeners must be supported")
+	}
+	stat, _ := s.ConfigDumpJSON("static_listeners")
+
+	var d struct {
+		Configs []map[string]any `json:"configs"`
+	}
+	if err := json.Unmarshal(dyn, &d); err != nil {
+		t.Fatal(err)
+	}
+	names := map[string]map[string]any{}
+	nameless := 0
+	for _, c := range d.Configs {
+		if !strings.HasSuffix(c["@type"].(string), "ListenersConfigDump.DynamicListener") {
+			t.Fatalf("element type %v", c["@type"])
+		}
+		name, ok := c["name"].(string)
+		if !ok {
+			// Envoy's second element for a rejected update: error_state only
+			if _, hasErr := c["error_state"]; !hasErr || len(c) != 2 {
+				t.Fatalf("a nameless element holds only @type and error_state: %v", c)
+			}
+			nameless++
+			continue
+		}
+		names[name] = c
+	}
+	if nameless != 1 {
+		t.Fatalf("one rejected update emits exactly one nameless twin, got %d", nameless)
+	}
+	for _, want := range []string{"virtualInbound", "0.0.0.0_8080", "orders-egress", "legacy-9090", "bad-update"} {
+		if names[want] == nil {
+			t.Fatalf("dynamic dump is missing %s: %v", want, names)
+		}
+	}
+	if _, ok := names["virtualInbound"]["active_state"]; !ok {
+		t.Fatal("an active listener carries active_state")
+	}
+	if _, ok := names["orders-egress"]["warming_state"]; !ok {
+		t.Fatal("a warming listener carries warming_state")
+	}
+	if _, ok := names["orders-egress"]["active_state"]; !ok {
+		t.Fatal("a warming update with ServingOld also carries active_state")
+	}
+	if _, ok := names["legacy-9090"]["draining_state"]; !ok {
+		t.Fatal("a draining listener carries draining_state")
+	}
+	es, ok := names["bad-update"]["error_state"].(map[string]any)
+	if !ok || es["details"] == "" || es["failed_configuration"] == nil {
+		t.Fatalf("error_state incomplete: %v", names["bad-update"])
+	}
+	if es["last_update_attempt"] == nil {
+		t.Fatal("the named element carries last_update_attempt, as Envoy does")
+	}
+	if !strings.HasSuffix(es["details"].(string), "\n") {
+		t.Fatal("details ends with a newline, as Envoy's do")
+	}
+	if _, ok := names["bad-update"]["active_state"]; !ok {
+		t.Fatal("a rejected update with ServingOld keeps its active_state")
+	}
+
+	if !strings.Contains(string(stat), "StaticListener") || strings.Contains(string(stat), "DynamicListener") {
+		t.Fatalf("static dump must hold only static listeners: %s", stat)
+	}
+	if strings.Contains(string(dyn), "admin-static") {
+		t.Fatal("static listeners must not appear in the dynamic dump")
+	}
+	if _, ok := Degraded().ConfigDumpJSON("bogus_listeners"); ok {
+		t.Fatal("unknown resource")
+	}
+}
+
+func TestListenerJSONCarriesAddressAndChains(t *testing.T) {
+	dyn, _ := Degraded().ConfigDumpJSON("dynamic_listeners")
+	body := string(dyn)
+	for _, want := range []string{
+		`"port_value":15006`, `"server_names":["a.example.com","b.example.com"]`,
+		`envoy.filters.network.http_connection_manager`, `"default_filter_chain"`,
+		`envoy.transport_sockets.tls`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("listener JSON misses %s", want)
+		}
+	}
+	stat, _ := Degraded().ConfigDumpJSON("static_listeners")
+	if !strings.Contains(string(stat), `"path":"/var/run/agent.sock"`) {
+		t.Fatalf("pipe address missing: %s", stat)
+	}
+}
+
+func TestFaultMatchScopesTheFault(t *testing.T) {
+	s := NewServer(Degraded())
+	srv := httptest.NewServer(s)
+	defer srv.Close()
+
+	s.Inject(Fault{Status: 503, Match: "dynamic_listeners"})
+	if code, _ := get(t, srv.URL+"/config_dump?resource=dynamic_listeners"); code != 503 {
+		t.Fatalf("matching request must fail, got %d", code)
+	}
+	for _, path := range []string{"/clusters?format=json", "/config_dump?resource=dynamic_active_clusters", "/server_info", "/config_dump?resource=static_listeners"} {
+		if code, _ := get(t, srv.URL+path); code != 200 {
+			t.Fatalf("%s must be unaffected, got %d", path, code)
+		}
+	}
+	s.Inject(Fault{})
+	if code, _ := get(t, srv.URL+"/config_dump?resource=dynamic_listeners"); code != 200 {
+		t.Fatal("cleared fault")
+	}
+}
+
+func TestScenarioListenerCounts(t *testing.T) {
+	if n := len(Degraded().Listeners); n != 7 {
+		t.Fatalf("Degraded has %d listeners, want 7", n)
+	}
+	if n := len(Healthy().Listeners); n != 3 {
+		t.Fatalf("Healthy has %d listeners, want 3", n)
+	}
+}
+
+func TestUpdateDeepCopiesListeners(t *testing.T) {
+	sc := Degraded()
+	s := NewServer(sc)
+	origName := sc.Listeners[0].Name
+	origChain := sc.Listeners[0].Chains[0].Match["transport_protocol"]
+	origSNI := sc.Listeners[0].Chains[1].Match["server_names"].([]string)[0]
+	origFilter := sc.Listeners[0].Chains[0].Filters[0]
+	origDefault := sc.Listeners[0].Default.Filters[0]
+	origDefaultName := sc.Listeners[0].Default.Name
+
+	s.Update(func(x *Scenario) {
+		l := &x.Listeners[0]
+		l.Name = "mutated"
+		l.Chains[0].Match["transport_protocol"] = "raw_buffer"
+		l.Chains[1].Match["server_names"].([]string)[0] = "mutated"
+		l.Chains[0].Filters[0] = "mutated"
+		l.Default.Filters[0] = "mutated"
+		l.Default.Name = "mutated"
+	})
+
+	l := sc.Listeners[0]
+	if l.Name != origName || l.Chains[0].Match["transport_protocol"] != origChain ||
+		l.Chains[1].Match["server_names"].([]string)[0] != origSNI ||
+		l.Chains[0].Filters[0] != origFilter || l.Default.Filters[0] != origDefault ||
+		l.Default.Name != origDefaultName {
+		t.Fatal("Update must not mutate the scenario passed to SetScenario/NewServer")
+	}
+	srv := httptest.NewServer(s)
+	defer srv.Close()
+	if _, body := get(t, srv.URL+"/config_dump?resource=dynamic_listeners"); !strings.Contains(body, "mutated") {
+		t.Fatal("update not visible")
+	}
+}

@@ -30,10 +30,31 @@ type Cluster struct {
 	Hosts   []Host
 }
 
+// Chain is one filter chain of a Listener.
+type Chain struct {
+	Name    string
+	Match   map[string]any // filter_chain_match as Envoy emits it
+	Filters []string       // short names, e.g. "tcp_proxy"
+	TLS     bool
+}
+
+type Listener struct {
+	Name       string
+	Address    string // "host:port" or "unix:/path"
+	Static     bool
+	Version    string
+	State      string // "active", "warming", "draining" or "error" (ignored when Static)
+	ServingOld bool   // warming/error update next to a still-active older version
+	Error      string // error details when State == "error"
+	Chains     []Chain
+	Default    *Chain
+}
+
 type Scenario struct {
-	Envoy    string
-	Updated  time.Time
-	Clusters []Cluster
+	Envoy     string
+	Updated   time.Time
+	Clusters  []Cluster
+	Listeners []Listener
 }
 
 var epoch = time.Date(2026, 10, 14, 10, 0, 0, 0, time.UTC)
@@ -85,11 +106,17 @@ func metric(name string, v uint64, typ string) map[string]any {
 	return map[string]any{"name": name, "value": strconv.FormatUint(v, 10), "type": typ}
 }
 
-// ConfigDumpJSON returns the dump for "dynamic_active_clusters" or
-// "static_clusters" in the shape Envoy uses for ?resource=: one configs[]
+// ConfigDumpJSON returns the dump for "dynamic_active_clusters",
+// "static_clusters", "dynamic_listeners" or "static_listeners" in the shape Envoy uses for ?resource=: one configs[]
 // element per cluster, typed ClustersConfigDump.DynamicCluster or .StaticCluster.
 func (s Scenario) ConfigDumpJSON(resource string) ([]byte, bool) {
-	if resource != "dynamic_active_clusters" && resource != "static_clusters" {
+	switch resource {
+	case "dynamic_listeners":
+		return mustJSON(map[string]any{"configs": s.listenerElements(false)}), true
+	case "static_listeners":
+		return mustJSON(map[string]any{"configs": s.listenerElements(true)}), true
+	case "dynamic_active_clusters", "static_clusters":
+	default:
 		return nil, false
 	}
 	configs := []any{}
@@ -120,6 +147,119 @@ func (s Scenario) ConfigDumpJSON(resource string) ([]byte, bool) {
 	return mustJSON(map[string]any{"configs": configs}), true
 }
 
+func (c Chain) json() map[string]any {
+	out := map[string]any{}
+	if c.Name != "" {
+		out["name"] = c.Name
+	}
+	if len(c.Match) > 0 {
+		out["filter_chain_match"] = c.Match
+	}
+	filters := []any{}
+	for _, f := range c.Filters {
+		filters = append(filters, map[string]any{"name": "envoy.filters.network." + f})
+	}
+	out["filters"] = filters
+	if c.TLS {
+		out["transport_socket"] = map[string]any{"name": "envoy.transport_sockets.tls"}
+	}
+	return out
+}
+
+func (l Listener) json() map[string]any {
+	addr := map[string]any{}
+	if path, ok := strings.CutPrefix(l.Address, "unix:"); ok {
+		addr["pipe"] = map[string]any{"path": path}
+	} else {
+		host, port, _ := net.SplitHostPort(l.Address)
+		n, _ := strconv.Atoi(port)
+		addr["socket_address"] = map[string]any{"address": host, "port_value": n}
+	}
+	chains := []any{}
+	for _, c := range l.Chains {
+		chains = append(chains, c.json())
+	}
+	out := map[string]any{
+		"@type":         "type.googleapis.com/envoy.config.listener.v3.Listener",
+		"name":          l.Name,
+		"address":       addr,
+		"filter_chains": chains,
+	}
+	if l.Default != nil {
+		out["default_filter_chain"] = l.Default.json()
+	}
+	return out
+}
+
+func (s Scenario) listenerState(l Listener) map[string]any {
+	return map[string]any{
+		"version_info": l.Version,
+		"listener":     l.json(),
+		"last_updated": s.Updated.Format(time.RFC3339Nano),
+	}
+}
+
+// listenerElements returns one configs[] element per listener for
+// ?resource=dynamic_listeners or static_listeners, in the shape Envoy uses.
+func (s Scenario) listenerElements(static bool) []any {
+	out := []any{}
+	for _, l := range s.Listeners {
+		if l.Static != static {
+			continue
+		}
+		if static {
+			out = append(out, map[string]any{
+				"@type":        "type.googleapis.com/envoy.admin.v3.ListenersConfigDump.StaticListener",
+				"listener":     l.json(),
+				"last_updated": s.Updated.Format(time.RFC3339Nano),
+			})
+			continue
+		}
+		e := map[string]any{
+			"@type": "type.googleapis.com/envoy.admin.v3.ListenersConfigDump.DynamicListener",
+			"name":  l.Name,
+		}
+		var twin map[string]any
+		switch l.State {
+		case "warming":
+			e["warming_state"] = s.listenerState(l)
+			if l.ServingOld {
+				old := l
+				old.Version = "prev"
+				e["active_state"] = s.listenerState(old)
+			}
+		case "draining":
+			e["draining_state"] = s.listenerState(l)
+		case "error":
+			e["error_state"] = map[string]any{
+				"failed_configuration": l.json(),
+				"last_update_attempt":  s.Updated.Format(time.RFC3339Nano),
+				"details":              l.Error + "\n", // Envoy ends details with a newline
+			}
+			if l.ServingOld {
+				old := l
+				old.Version = "prev"
+				e["active_state"] = s.listenerState(old)
+			}
+			// Envoy also emits a second, nameless element holding only the error.
+			twin = map[string]any{
+				"@type": "type.googleapis.com/envoy.admin.v3.ListenersConfigDump.DynamicListener",
+				"error_state": map[string]any{
+					"failed_configuration": l.json(),
+					"details":              l.Error + "\n",
+				},
+			}
+		default:
+			e["active_state"] = s.listenerState(l)
+		}
+		out = append(out, e)
+		if twin != nil {
+			out = append(out, twin)
+		}
+	}
+	return out
+}
+
 func (s Scenario) ServerInfoJSON() []byte {
 	return mustJSON(map[string]any{"version": s.Envoy, "state": "LIVE"})
 }
@@ -136,8 +276,44 @@ func ok(addr, zone string, w uint32, rq, cx uint64) Host {
 	return Host{Address: addr, Zone: zone, Weight: w, RqActive: rq, CxActive: cx}
 }
 
+var (
+	hcm = []string{"http_connection_manager"}
+	tcp = []string{"tcp_proxy"}
+)
+
+func healthyListeners() []Listener {
+	return []Listener{
+		{Name: "0.0.0.0_8080", Address: "0.0.0.0:8080", Version: "42", State: "active",
+			Chains: []Chain{{Filters: hcm}}},
+		{Name: "0.0.0.0_9200", Address: "0.0.0.0:9200", Version: "42", State: "active",
+			Chains: []Chain{{Filters: tcp}}},
+		{Name: "admin-static", Address: "127.0.0.1:15000", Static: true, Chains: []Chain{{Filters: tcp}}},
+	}
+}
+
+func degradedListeners() []Listener {
+	return []Listener{
+		{Name: "virtualInbound", Address: "0.0.0.0:15006", Version: "7", State: "active",
+			Chains: []Chain{
+				{Match: map[string]any{"destination_port": 8080, "transport_protocol": "tls", "application_protocols": []string{"h2"}},
+					Filters: hcm, TLS: true},
+				{Name: "by-sni", Match: map[string]any{"server_names": []string{"a.example.com", "b.example.com"}}, Filters: hcm},
+			},
+			Default: &Chain{Filters: tcp}},
+		{Name: "0.0.0.0_8080", Address: "0.0.0.0:8080", Version: "7", State: "active", Chains: []Chain{{Filters: hcm}}},
+		{Name: "orders-egress", Address: "10.0.2.1:5432", Version: "8", State: "warming", ServingOld: true, Chains: []Chain{{Filters: tcp}}},
+		{Name: "legacy-9090", Address: "0.0.0.0:9090", Version: "6", State: "draining", Chains: []Chain{{Filters: tcp}}},
+		{Name: "bad-update", Address: "0.0.0.0:9443", Version: "9", State: "error", ServingOld: true,
+			Error:  "error adding listener '0.0.0.0:9443': unknown filter 'envoy.filters.network.nope'\nwhile processing LDS update version 9",
+			Chains: []Chain{{Filters: tcp}}},
+		{Name: "admin-static", Address: "127.0.0.1:15000", Static: true, Chains: []Chain{{Filters: tcp}}},
+		{Name: "uds-agent", Address: "unix:/var/run/agent.sock", Static: true, Chains: []Chain{{Filters: tcp}}},
+	}
+}
+
 func base(clusters ...Cluster) Scenario {
-	return Scenario{Envoy: "deadbeef/1.31.0/Clean/RELEASE/BoringSSL", Updated: epoch, Clusters: clusters}
+	return Scenario{Envoy: "deadbeef/1.31.0/Clean/RELEASE/BoringSSL", Updated: epoch, Clusters: clusters,
+		Listeners: healthyListeners()}
 }
 
 func Healthy() Scenario {
@@ -163,7 +339,7 @@ func Degraded() Scenario {
 		{Address: "10.0.2.21:5432", Zone: "us-east-1a", Weight: 1, RqError: 4, Health: map[string]any{"failed_outlier_check": true}},
 		{Address: "10.0.2.22:5432", Zone: "us-east-1b", Weight: 1, RqError: 9, Health: map[string]any{"failed_outlier_check": true}},
 	}}
-	return base(
+	sc := base(
 		api, db,
 		Cluster{Name: "cache-redis", Type: "EDS", Version: "40"},
 		Cluster{Name: "search", Type: "EDS", Version: "42", Hosts: []Host{
@@ -172,6 +348,8 @@ func Degraded() Scenario {
 		Cluster{Name: "xds_cluster", Static: true, Hosts: []Host{ok("127.0.0.1:18000", "", 1, 0, 1)}},
 		Cluster{Name: "local-agent", Static: true, Hosts: []Host{{Address: "unix:/var/run/agent.sock", NoStats: true}}},
 	)
+	sc.Listeners = degradedListeners()
+	return sc
 }
 
 // Big returns n EDS clusters with two hosts each; every seventh has a failing host.
