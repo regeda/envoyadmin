@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
 
 	"github.com/regeda/txenvoy/internal/demo"
 	"github.com/regeda/txenvoy/internal/snapshot"
@@ -352,5 +353,16 @@ func TestEndpointsDropPriorityWeightBeforeZone(t *testing.T) {
 	}
 	if !strings.Contains(lines[2], "FAILED_OUTLIER_CHECK") {
 		t.Fatalf("flag cut at w=66: %q", lines[2])
+	}
+}
+
+func TestHealthyOKFlagIsDim(t *testing.T) {
+	prev := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI)
+	defer lipgloss.SetColorProfile(prev)
+
+	got := flagCell(nil, 6)
+	if !strings.Contains(got, dimStyle.Render("OK")) || strings.Contains(got, okStyle.Render("OK")) {
+		t.Fatalf("OK must be dim, not green (spec 5.6): %q", got)
 	}
 }

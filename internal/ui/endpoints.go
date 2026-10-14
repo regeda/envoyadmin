@@ -77,7 +77,7 @@ func flagCell(flags []string, width int) string {
 		return ""
 	}
 	if len(flags) == 0 {
-		return pad(okStyle.Render(trunc("OK", width)), width)
+		return pad(dimStyle.Render(trunc("OK", width)), width)
 	}
 	var parts []string
 	used := 0
