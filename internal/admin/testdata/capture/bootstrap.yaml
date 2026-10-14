@@ -1,0 +1,58 @@
+node: {id: txenvoy-capture, cluster: txenvoy}
+admin:
+  address: {socket_address: {address: 0.0.0.0, port_value: 9901}}
+static_resources:
+  clusters:
+  - name: api
+    type: STATIC
+    connect_timeout: 1s
+    load_assignment:
+      cluster_name: api
+      endpoints:
+      - lb_endpoints:
+        - endpoint: {address: {socket_address: {address: 10.0.0.1, port_value: 8080}}}
+  listeners:
+  - name: static_tcp
+    address: {socket_address: {address: 127.0.0.1, port_value: 10001}}
+    filter_chains:
+    - filters:
+      - name: envoy.filters.network.tcp_proxy
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy
+          stat_prefix: static_tcp
+          cluster: api
+  - name: static_multi
+    address: {socket_address: {address: 0.0.0.0, port_value: 10002}}
+    listener_filters:
+    - name: envoy.filters.listener.tls_inspector
+      typed_config: {"@type": type.googleapis.com/envoy.extensions.filters.listener.tls_inspector.v3.TlsInspector}
+    filter_chains:
+    - name: by-sni
+      filter_chain_match: {server_names: [a.example.com, b.example.com], transport_protocol: tls}
+      filters:
+      - name: envoy.filters.network.tcp_proxy
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy
+          stat_prefix: by_sni
+          cluster: api
+    - name: by-port-and-cidr
+      filter_chain_match:
+        destination_port: 10002
+        prefix_ranges: [{address_prefix: 10.0.0.0, prefix_len: 8}]
+      filters:
+      - name: envoy.filters.network.tcp_proxy
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy
+          stat_prefix: by_port
+          cluster: api
+    default_filter_chain:
+      filters:
+      - name: envoy.filters.network.tcp_proxy
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy
+          stat_prefix: default
+          cluster: api
+dynamic_resources:
+  lds_config:
+    resource_api_version: V3
+    path_config_source: {path: /etc/envoy/lds.yaml}

@@ -1,0 +1,110 @@
+{
+ "configs": [
+  {
+   "@type": "type.googleapis.com/envoy.admin.v3.ListenersConfigDump.StaticListener",
+   "listener": {
+    "@type": "type.googleapis.com/envoy.config.listener.v3.Listener",
+    "name": "static_tcp",
+    "address": {
+     "socket_address": {
+      "address": "127.0.0.1",
+      "port_value": 10001
+     }
+    },
+    "filter_chains": [
+     {
+      "filters": [
+       {
+        "name": "envoy.filters.network.tcp_proxy",
+        "typed_config": {
+         "@type": "type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy",
+         "stat_prefix": "static_tcp",
+         "cluster": "api"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "last_updated": "2026-10-14T02:47:53.557Z"
+  },
+  {
+   "@type": "type.googleapis.com/envoy.admin.v3.ListenersConfigDump.StaticListener",
+   "listener": {
+    "@type": "type.googleapis.com/envoy.config.listener.v3.Listener",
+    "name": "static_multi",
+    "address": {
+     "socket_address": {
+      "address": "0.0.0.0",
+      "port_value": 10002
+     }
+    },
+    "filter_chains": [
+     {
+      "filter_chain_match": {
+       "transport_protocol": "tls",
+       "server_names": [
+        "a.example.com",
+        "b.example.com"
+       ]
+      },
+      "filters": [
+       {
+        "name": "envoy.filters.network.tcp_proxy",
+        "typed_config": {
+         "@type": "type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy",
+         "stat_prefix": "by_sni",
+         "cluster": "api"
+        }
+       }
+      ],
+      "name": "by-sni"
+     },
+     {
+      "filter_chain_match": {
+       "prefix_ranges": [
+        {
+         "address_prefix": "10.0.0.0",
+         "prefix_len": 8
+        }
+       ],
+       "destination_port": 10002
+      },
+      "filters": [
+       {
+        "name": "envoy.filters.network.tcp_proxy",
+        "typed_config": {
+         "@type": "type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy",
+         "stat_prefix": "by_port",
+         "cluster": "api"
+        }
+       }
+      ],
+      "name": "by-port-and-cidr"
+     }
+    ],
+    "listener_filters": [
+     {
+      "name": "envoy.filters.listener.tls_inspector",
+      "typed_config": {
+       "@type": "type.googleapis.com/envoy.extensions.filters.listener.tls_inspector.v3.TlsInspector"
+      }
+     }
+    ],
+    "default_filter_chain": {
+     "filters": [
+      {
+       "name": "envoy.filters.network.tcp_proxy",
+       "typed_config": {
+        "@type": "type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy",
+        "stat_prefix": "default",
+        "cluster": "api"
+       }
+      }
+     ]
+    }
+   },
+   "last_updated": "2026-10-14T02:47:53.558Z"
+  }
+ ]
+}

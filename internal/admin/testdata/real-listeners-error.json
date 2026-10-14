@@ -1,0 +1,92 @@
+{
+ "configs": [
+  {
+   "@type": "type.googleapis.com/envoy.admin.v3.ListenersConfigDump.DynamicListener",
+   "name": "dynamic_one",
+   "active_state": {
+    "version_info": "7",
+    "listener": {
+     "@type": "type.googleapis.com/envoy.config.listener.v3.Listener",
+     "name": "dynamic_one",
+     "address": {
+      "socket_address": {
+       "address": "0.0.0.0",
+       "port_value": 10003
+      }
+     },
+     "filter_chains": [
+      {
+       "filters": [
+        {
+         "name": "envoy.filters.network.does_not_exist",
+         "typed_config": {
+          "@type": "type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy",
+          "stat_prefix": "dynamic_one",
+          "cluster": "api"
+         }
+        }
+       ]
+      }
+     ]
+    },
+    "last_updated": "2026-10-14T02:48:19.499Z"
+   },
+   "error_state": {
+    "failed_configuration": {
+     "@type": "type.googleapis.com/envoy.config.listener.v3.Listener",
+     "name": "dynamic_one",
+     "address": {
+      "socket_address": {
+       "address": "0.0.0.0",
+       "port_value": 10003
+      }
+     },
+     "filter_chains": [
+      {
+       "filters": [
+        {
+         "name": "envoy.filters.network.tcp_proxy",
+         "typed_config": {
+          "@type": "type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy",
+          "stat_prefix": "dynamic_one"
+         }
+        }
+       ]
+      }
+     ]
+    },
+    "last_update_attempt": "2026-10-14T02:48:40.320Z",
+    "details": "Proto constraint validation failed (field: \"cluster_specifier\", reason: is required): stat_prefix: \"dynamic_one\"\n"
+   }
+  },
+  {
+   "@type": "type.googleapis.com/envoy.admin.v3.ListenersConfigDump.DynamicListener",
+   "error_state": {
+    "failed_configuration": {
+     "@type": "type.googleapis.com/envoy.config.listener.v3.Listener",
+     "name": "dynamic_one",
+     "address": {
+      "socket_address": {
+       "address": "0.0.0.0",
+       "port_value": 10003
+      }
+     },
+     "filter_chains": [
+      {
+       "filters": [
+        {
+         "name": "envoy.filters.network.tcp_proxy",
+         "typed_config": {
+          "@type": "type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy",
+          "stat_prefix": "dynamic_one"
+         }
+        }
+       ]
+      }
+     ]
+    },
+    "details": "Proto constraint validation failed (field: \"cluster_specifier\", reason: is required): stat_prefix: \"dynamic_one\"\n"
+   }
+  }
+ ]
+}
