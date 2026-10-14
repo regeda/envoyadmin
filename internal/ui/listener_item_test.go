@@ -17,9 +17,9 @@ func lst(name, addr string, state snapshot.ListenerStatus) snapshot.Listener {
 		Name: name, Address: addr, State: state, VersionInfo: "42",
 		LastUpdated: time.Date(2026, 10, 14, 10, 0, 0, 0, time.UTC),
 		Chains: []snapshot.FilterChain{
-			{Label: "#1", Match: []string{"sni=a.com,b.com", "port=443", "transport=tls"}, Filters: []string{"http_connection_manager"}, TLS: true},
-			{Label: "#2", Filters: []string{"tcp_proxy"}},
-			{Label: "default", Filters: []string{"tcp_proxy"}},
+			{Label: "#1", Match: []string{"sni=a.com,b.com", "port=443", "transport=tls"}, Filters: fl("http_connection_manager"), TLS: true},
+			{Label: "#2", Filters: fl("tcp_proxy")},
+			{Label: "default", Filters: fl("tcp_proxy")},
 		},
 	}
 }
@@ -137,10 +137,10 @@ func TestListenerOverviewLayout(t *testing.T) {
 	if strings.Contains(ansiStrip(strings.Join(rows, "\n")), "version_info") {
 		t.Fatal("the Overview does not show version_info (it is in the Config tab header)")
 	}
-	chains := ansiStrip(strings.Join(rows[5:11], "\n"))
+	chains := ansiStrip(strings.Join(rows[5:13], "\n"))
 	for _, frag := range []string{
 		fmt.Sprintf(" %-7s  %s", "#1", "sni=a.com,b.com · port=443 · transport=tls"),
-		"http_connection_manager · TLS",
+		"http_connection_manager\n          TLS",
 		fmt.Sprintf(" %-7s  %s", "#2", "any"),
 		fmt.Sprintf(" %-7s  %s", "default", "any"),
 	} {
@@ -214,7 +214,7 @@ func TestListenerOverviewNeverExceedsBoundsAndKeepsStickyRows(t *testing.T) {
 	l := lst("x", "0.0.0.0:1", snapshot.ListenerError)
 	l.ErrorDetails = strings.Repeat("boom ", 40)
 	for i := 0; i < 30; i++ {
-		l.Chains = append(l.Chains, snapshot.FilterChain{Label: fmt.Sprintf("chain-%d", i), Match: []string{strings.Repeat("sni=long.example.com,", 10)}, Filters: []string{"tcp_proxy"}})
+		l.Chains = append(l.Chains, snapshot.FilterChain{Label: fmt.Sprintf("chain-%d", i), Match: []string{strings.Repeat("sni=long.example.com,", 10)}, Filters: fl("tcp_proxy")})
 	}
 	for _, w := range []int{20, 40, 80} {
 		for _, h := range []int{1, 2, 3, 6, 10, 25} {
@@ -248,7 +248,7 @@ func TestListenerOverviewNeverExceedsBoundsAndKeepsStickyRows(t *testing.T) {
 func TestListenerOverviewMaxScrollMatchesRendering(t *testing.T) {
 	l := lst("x", "0.0.0.0:1", snapshot.ListenerActive)
 	for i := 0; i < 20; i++ {
-		l.Chains = append(l.Chains, snapshot.FilterChain{Label: fmt.Sprintf("chain-%02d", i), Filters: []string{"tcp_proxy"}})
+		l.Chains = append(l.Chains, snapshot.FilterChain{Label: fmt.Sprintf("chain-%02d", i), Filters: fl("tcp_proxy")})
 	}
 	it := item0(l)
 	maxScroll := it.OverviewMaxScroll(60, 12)
@@ -274,7 +274,7 @@ func TestListenerOverviewMaxScrollMatchesRendering(t *testing.T) {
 
 func TestListenerOverviewLongLinesAreClippedWithEllipsis(t *testing.T) {
 	l := lst("x", "0.0.0.0:1", snapshot.ListenerActive)
-	l.Chains = []snapshot.FilterChain{{Label: "c", Match: []string{"sni=" + strings.Repeat("host.example.com,", 20)}, Filters: []string{"tcp_proxy"}}}
+	l.Chains = []snapshot.FilterChain{{Label: "c", Match: []string{"sni=" + strings.Repeat("host.example.com,", 20)}, Filters: fl("tcp_proxy")}}
 	rows := overviewRows(item0(l), 40, 12, 0)
 	found := false
 	for _, r := range rows {
@@ -308,7 +308,7 @@ func TestListenerOverviewTinyAndWideNeverPanicOrOverflow(t *testing.T) {
 	wide := lst("日本語", "", snapshot.ListenerError)
 	wide.ErrorDetails = strings.Repeat("日本語のエラー ", 10)
 	wide.ServingOld = true
-	wide.Chains = []snapshot.FilterChain{{Label: "日本語のチェーン名前", Match: []string{"sni=日本語.example.com"}, Filters: []string{"フィルター"}, TLS: true}}
+	wide.Chains = []snapshot.FilterChain{{Label: "日本語のチェーン名前", Match: []string{"sni=日本語.example.com"}, Filters: fl("フィルター"), TLS: true}}
 	empty := lst("e", "", snapshot.ListenerActive)
 	empty.Chains = nil
 	for _, l := range []snapshot.Listener{wide, empty} {
@@ -337,7 +337,7 @@ func TestListenerOverviewMaxScrollCountsTheErrorBlock(t *testing.T) {
 	l.ErrorDetails = strings.Repeat("boom ", 40)
 	l.ServingOld = true
 	for i := 0; i < 15; i++ {
-		l.Chains = append(l.Chains, snapshot.FilterChain{Label: fmt.Sprintf("chain-%02d", i), Filters: []string{"tcp_proxy"}})
+		l.Chains = append(l.Chains, snapshot.FilterChain{Label: fmt.Sprintf("chain-%02d", i), Filters: fl("tcp_proxy")})
 	}
 	it := item0(l)
 	max := it.OverviewMaxScroll(60, 20)
@@ -423,7 +423,7 @@ func TestListenerOverviewMaxScrollWithWrappedNote(t *testing.T) {
 	l.ErrorDetails = "boom"
 	l.ServingOld = true // wraps to two rows at width 50
 	for i := 0; i < 15; i++ {
-		l.Chains = append(l.Chains, snapshot.FilterChain{Label: fmt.Sprintf("chain-%02d", i), Filters: []string{"tcp_proxy"}})
+		l.Chains = append(l.Chains, snapshot.FilterChain{Label: fmt.Sprintf("chain-%02d", i), Filters: fl("tcp_proxy")})
 	}
 	it := item0(l)
 	last := ansiStrip(strings.Join(overviewRows(it, 50, 16, it.OverviewMaxScroll(50, 16)), "\n"))
@@ -436,9 +436,9 @@ func TestListenerOverviewMaxScrollWithWrappedNote(t *testing.T) {
 func istioListener() snapshot.Listener {
 	l := lst("virtualInbound", "0.0.0.0:15006", snapshot.ListenerActive)
 	l.Chains = []snapshot.FilterChain{
-		{Label: "virtualInbound-blackhole", Match: []string{"port=1"}, Filters: []string{"tcp_proxy"}},
-		{Label: "virtualInbound-catchall-http", Match: []string{"transport=tls"}, Filters: []string{"http_connection_manager"}},
-		{Label: "short", Filters: []string{"tcp_proxy"}},
+		{Label: "virtualInbound-blackhole", Match: []string{"port=1"}, Filters: fl("tcp_proxy")},
+		{Label: "virtualInbound-catchall-http", Match: []string{"transport=tls"}, Filters: fl("http_connection_manager")},
+		{Label: "short", Filters: fl("tcp_proxy")},
 	}
 	return l
 }
@@ -480,7 +480,7 @@ func TestChainLabelsStayDistinguishableAndCutsAreMarked(t *testing.T) {
 func TestChainLabelWidthKeepsScrollMaxConsistent(t *testing.T) {
 	l := istioListener()
 	for i := 0; i < 20; i++ {
-		l.Chains = append(l.Chains, snapshot.FilterChain{Label: fmt.Sprintf("c-%02d", i), Filters: []string{"tcp_proxy"}})
+		l.Chains = append(l.Chains, snapshot.FilterChain{Label: fmt.Sprintf("c-%02d", i), Filters: fl("tcp_proxy")})
 	}
 	it := item0(l)
 	for _, w := range []int{20, 60, 84, 120} {
@@ -501,9 +501,9 @@ func TestChainLabelWidthKeepsScrollMaxConsistent(t *testing.T) {
 func hcmListener() snapshot.Listener {
 	l := lst("x", "0.0.0.0:1", snapshot.ListenerActive)
 	l.Chains = []snapshot.FilterChain{
-		{Label: "#1", Filters: []string{"http_connection_manager"}, HTTPFilters: []string{"cors", "istio.stats", "router"}},
-		{Label: "#2", Filters: []string{"tcp_proxy"}},
-		{Label: "default", Filters: []string{"http_connection_manager"}, HTTPFilters: []string{"router"}},
+		{Label: "#1", Filters: fl("http_connection_manager"), HTTPFilters: fl("cors", "istio.stats", "router")},
+		{Label: "#2", Filters: fl("tcp_proxy")},
+		{Label: "default", Filters: fl("http_connection_manager"), HTTPFilters: fl("router")},
 	}
 	return l
 }
@@ -561,8 +561,8 @@ func TestListenerOverviewHTTPFilterTree(t *testing.T) {
 func TestListenerOverviewHTTPFilterTreeEdgeCases(t *testing.T) {
 	l := hcmListener()
 	l.Chains = []snapshot.FilterChain{
-		{Label: "none", Filters: []string{"http_connection_manager"}},
-		{Label: "one", Filters: []string{"http_connection_manager"}, HTTPFilters: []string{"router"}},
+		{Label: "none", Filters: fl("http_connection_manager")},
+		{Label: "one", Filters: fl("http_connection_manager"), HTTPFilters: fl("router")},
 	}
 	text := strings.Join(plainRows(item0(l), 60, 14, 0), "\n")
 	if strings.Count(text, "├")+strings.Count(text, "└") != 1 || !strings.Contains(text, "└ router") {
@@ -572,8 +572,8 @@ func TestListenerOverviewHTTPFilterTreeEdgeCases(t *testing.T) {
 
 func TestListenerOverviewHTTPFilterLongNamesAreClipped(t *testing.T) {
 	l := hcmListener()
-	l.Chains = []snapshot.FilterChain{{Label: "c", Filters: []string{"http_connection_manager"},
-		HTTPFilters: []string{strings.Repeat("very.long.filter.name.", 8), "router"}}}
+	l.Chains = []snapshot.FilterChain{{Label: "c", Filters: fl("http_connection_manager"),
+		HTTPFilters: fl(strings.Repeat("very.long.filter.name.", 8), "router")}}
 	rows := plainRows(item0(l), 40, 12, 0)
 	var clipped bool
 	for _, r := range rows {
@@ -592,8 +592,8 @@ func TestListenerOverviewHTTPFilterLongNamesAreClipped(t *testing.T) {
 func TestListenerOverviewHTTPFilterTreeBounds(t *testing.T) {
 	l := hcmListener()
 	for i := 0; i < 6; i++ {
-		l.Chains = append(l.Chains, snapshot.FilterChain{Label: fmt.Sprintf("hcm-%d", i), Filters: []string{"http_connection_manager"},
-			HTTPFilters: []string{"envoy-very-long-name-" + strings.Repeat("z", 60), "b", "c"}})
+		l.Chains = append(l.Chains, snapshot.FilterChain{Label: fmt.Sprintf("hcm-%d", i), Filters: fl("http_connection_manager"),
+			HTTPFilters: fl("envoy-very-long-name-"+strings.Repeat("z", 60), "b", "c")})
 	}
 	it := item0(l)
 	for w := 20; w <= 120; w += 5 {
@@ -616,8 +616,8 @@ func TestListenerOverviewHTTPFilterTreeBounds(t *testing.T) {
 func TestListenerOverviewHTTPFilterScrollReachesLastNestedLine(t *testing.T) {
 	l := hcmListener()
 	for i := 0; i < 5; i++ {
-		l.Chains = append(l.Chains, snapshot.FilterChain{Label: fmt.Sprintf("hcm-%d", i), Filters: []string{"http_connection_manager"},
-			HTTPFilters: []string{"a", "b", fmt.Sprintf("last-%d", i)}})
+		l.Chains = append(l.Chains, snapshot.FilterChain{Label: fmt.Sprintf("hcm-%d", i), Filters: fl("http_connection_manager"),
+			HTTPFilters: fl("a", "b", fmt.Sprintf("last-%d", i))})
 	}
 	it := item0(l)
 	for _, h := range []int{8, 10, 14, 20} {
@@ -640,5 +640,39 @@ func TestListenerOverviewHTTPFilterScrollReachesLastNestedLine(t *testing.T) {
 				t.Fatalf("h=%d: sticky %q must remain", h, frag)
 			}
 		}
+	}
+}
+
+// fl builds filters by name; the UI tests need no types.
+func fl(names ...string) []snapshot.Filter {
+	out := make([]snapshot.Filter, len(names))
+	for i, n := range names {
+		out[i] = snapshot.Filter{Name: n}
+	}
+	return out
+}
+
+func TestListenerOverviewFilterRowsShowNameThenType(t *testing.T) {
+	l := lst("x", "0.0.0.0:1", snapshot.ListenerActive)
+	l.Chains = []snapshot.FilterChain{{Label: "c", TLS: true,
+		Filters:     []snapshot.Filter{{Name: "envoy.filters.network.http_connection_manager", Type: "HttpConnectionManager"}, {Name: "envoy.filters.network.tcp_proxy"}},
+		HTTPFilters: []snapshot.Filter{{Name: "envoy.filters.http.cors", Type: "Cors"}, {Name: "envoy.filters.http.router", Type: "Router"}}}}
+	text := strings.Join(plainRows(item0(l), 100, 20, 0), "\n")
+	for _, frag := range []string{
+		" c  any\n",
+		"    envoy.filters.network.http_connection_manager  HttpConnectionManager\n",
+		"    envoy.filters.network.tcp_proxy\n",
+		"    TLS\n",
+		"      ├ envoy.filters.http.cors  Cors\n",
+		"      └ envoy.filters.http.router  Router",
+	} {
+		if !strings.Contains(text, frag) {
+			t.Fatalf("missing %q:\n%s", frag, text)
+		}
+	}
+	// too narrow for name + type: the type goes, the name stays
+	narrow := strings.Join(plainRows(item0(l), 50, 20, 0), "\n")
+	if strings.Contains(narrow, "HttpConnectionManager") || !strings.Contains(narrow, "envoy.filters.network.http_conn") {
+		t.Fatalf("narrow pane:\n%s", narrow)
 	}
 }

@@ -4,18 +4,18 @@
   Clusters (6)  [Listeners (7)]
 / to filter                         │  bad-update  ·  Overview | Config                                                 
 >✗ bad-update           0.0.0.0:9443│version_info: prev   last_updated: 2026-10-14 10:00:00Z                            
- ◐ legacy-9090          0.0.0.0:9090│1│ '@type': type.googleapis.com/envoy.config.listener.v3.Listener                  
- ◐ orders-egress       10.0.2.1:5432│2│ address:                                                                        
- ● 0.0.0.0_8080         0.0.0.0:8080│3│   socket_address:                                                               
- ● admin-static      127.0.0.1:15000│4│     address: 0.0.0.0                                                            
- ● uds-agent   unix:/var/run/agent.s│5│     port_value: 9443                                                            
- ● virtualInbound      0.0.0.0:15006│6│ filter_chains:                                                                  
-                                    │7│ - filters:                                                                      
-                                    │8│   - name: envoy.filters.network.tcp_proxy                                       
-                                    │9│ name: bad-update                                                                
-                                    │                                                                                   
-                                    │                                                                                   
-                                    │                                                                                   
+ ◐ legacy-9090          0.0.0.0:9090│ 1│ '@type': type.googleapis.com/envoy.config.listener.v3.Listener                 
+ ◐ orders-egress       10.0.2.1:5432│ 2│ address:                                                                       
+ ● 0.0.0.0_8080         0.0.0.0:8080│ 3│   socket_address:                                                              
+ ● admin-static      127.0.0.1:15000│ 4│     address: 0.0.0.0                                                           
+ ● uds-agent   unix:/var/run/agent.s│ 5│     port_value: 9443                                                           
+ ● virtualInbound      0.0.0.0:15006│ 6│ filter_chains:                                                                 
+                                    │ 7│ - filters:                                                                     
+                                    │ 8│   - name: envoy.filters.network.tcp_proxy                                      
+                                    │ 9│     typed_config:                                                              
+                                    │10│       '@type': type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v
+                                    │11│       stat_prefix: demo                                                        
+                                    │12│ name: bad-update                                                               
                                     │                                                                                   
                                     │                                                                                   
                                     │                                                                                   

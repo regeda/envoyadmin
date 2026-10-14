@@ -24,13 +24,19 @@ func (s ListenerStatus) String() string {
 	return [...]string{"active", "warming", "draining", "error"}[s]
 }
 
+// Filter is a network or HTTP filter: its full configured name and the short
+// proto type of its typed_config ("TcpProxy"; empty without a typed_config).
+type Filter struct {
+	Name, Type string
+}
+
 type FilterChain struct {
 	Label   string
 	Match   []string
-	Filters []string
-	// HTTPFilters are the http_filters[] names (the envoy.filters.http. prefix
-	// stripped) of the first HttpConnectionManager filter in the chain.
-	HTTPFilters []string
+	Filters []Filter
+	// HTTPFilters are the http_filters[] of the first HttpConnectionManager
+	// filter in the chain.
+	HTTPFilters []Filter
 	TLS         bool
 }
 
@@ -167,19 +173,28 @@ func parseAddress(raw json.RawMessage) string {
 }
 
 const (
-	networkFilterPrefix = "envoy.filters.network."
-	httpFilterPrefix    = "envoy.filters.http."
-	hcmTypeURL          = "type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager"
+	hcmTypeURL = "type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager"
 )
 
-// parseHTTPFilters returns the http_filters[] names of an HttpConnectionManager
+// shortType is the message name of a typed_config @type URL:
+// "type.googleapis.com/envoy.extensions.filters.http.router.v3.Router" -> "Router".
+func shortType(typed json.RawMessage) string {
+	var t struct {
+		Type string `json:"@type"`
+	}
+	_ = json.Unmarshal(typed, &t)
+	return t.Type[strings.LastIndexAny(t.Type, "/.")+1:]
+}
+
+// parseHTTPFilters returns the http_filters[] of an HttpConnectionManager
 // typed_config and whether it is one (the exact @type decides, never the
-// filter name). Best effort: wrong types yield fewer names, never a panic.
-func parseHTTPFilters(typed json.RawMessage) (names []string, isHCM bool) {
+// filter name). Best effort: wrong types yield fewer filters, never a panic.
+func parseHTTPFilters(typed json.RawMessage) (filters []Filter, isHCM bool) {
 	var tc struct {
 		Type    string `json:"@type"`
 		Filters []struct {
-			Name string `json:"name"`
+			Name        string          `json:"name"`
+			TypedConfig json.RawMessage `json:"typed_config"`
 		} `json:"http_filters"`
 	}
 	_ = json.Unmarshal(typed, &tc)
@@ -188,10 +203,10 @@ func parseHTTPFilters(typed json.RawMessage) (names []string, isHCM bool) {
 	}
 	for _, f := range tc.Filters {
 		if f.Name != "" {
-			names = append(names, strings.TrimPrefix(f.Name, httpFilterPrefix))
+			filters = append(filters, Filter{Name: f.Name, Type: shortType(f.TypedConfig)})
 		}
 	}
-	return names, true
+	return filters, true
 }
 
 func parseChain(raw json.RawMessage, label string) FilterChain {
@@ -213,7 +228,7 @@ func parseChain(raw json.RawMessage, label string) FilterChain {
 	}
 	seenHCM := false
 	for _, f := range c.Filters {
-		fc.Filters = append(fc.Filters, strings.TrimPrefix(f.Name, networkFilterPrefix))
+		fc.Filters = append(fc.Filters, Filter{Name: f.Name, Type: shortType(f.TypedConfig)})
 		if !seenHCM { // the first HttpConnectionManager is authoritative
 			fc.HTTPFilters, seenHCM = parseHTTPFilters(f.TypedConfig)
 		}

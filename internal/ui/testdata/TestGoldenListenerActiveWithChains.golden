@@ -10,18 +10,18 @@
                                     │                                                                                   
                                     │Filter chains (3)                                                                  
                                     │ #1       port=8080 · transport=tls · alpn=h2                                      
-                                    │          http_connection_manager · TLS                                            
-                                    │            ├ cors                                                                 
-                                    │            ├ istio.stats                                                          
-                                    │            └ router                                                               
+                                    │          envoy.filters.network.http_connection_manager  HttpConnectionManager     
+                                    │          TLS                                                                      
+                                    │            ├ envoy.filters.http.cors  Cors                                        
+                                    │            ├ istio.stats  TypedStruct                                             
+                                    │            └ envoy.filters.http.router  Router                                    
                                     │ by-sni   sni=a.example.com,b.example.com                                          
-                                    │          http_connection_manager                                                  
-                                    │            ├ cors                                                                 
-                                    │            ├ istio.stats                                                          
-                                    │            └ router                                                               
+                                    │          envoy.filters.network.http_connection_manager  HttpConnectionManager     
+                                    │            ├ envoy.filters.http.cors  Cors                                        
+                                    │            ├ istio.stats  TypedStruct                                             
+                                    │            └ envoy.filters.http.router  Router                                    
                                     │ default  any                                                                      
-                                    │          tcp_proxy                                                                
-                                    │                                                                                   
+                                    │          envoy.filters.network.tcp_proxy  TcpProxy                                
                                     │                                                                                   
                                     │                                                                                   
                                     │                                                                                   

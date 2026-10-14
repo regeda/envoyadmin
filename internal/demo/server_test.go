@@ -323,9 +323,9 @@ func TestHCMChainsCarryTypedConfigWithHTTPFilters(t *testing.T) {
 	if !found {
 		t.Fatal("virtualInbound missing")
 	}
-	// tcp_proxy filters carry no typed_config
-	if strings.Contains(string(mustJSON(Chain{Filters: tcp}.json())), "typed_config") {
-		t.Fatal("only HCM filters get a typed_config")
+	// tcp_proxy carries a typed_config, but no http_filters
+	if j := string(mustJSON(Chain{Filters: tcp}.json())); !strings.Contains(j, "TcpProxy") || strings.Contains(j, "http_filters") {
+		t.Fatalf("tcp_proxy typed_config: %s", j)
 	}
 }
 

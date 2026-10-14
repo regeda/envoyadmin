@@ -117,10 +117,22 @@ func (it listenerItem) sticky(w int) []string {
 	return append(lines, "", boldStyle.Render("Filter chains ("+strconv.Itoa(len(l.Chains))+")"))
 }
 
-// chainLines is two rows per chain, plus one row per HTTP filter of the chain's
-// HttpConnectionManager, drawn as a tree under the filters row. The label column is as wide as the widest
-// label, but at most a third of the pane (never under overviewLabelW), so long
-// Istio-style names stay distinguishable; a cut label always ends with "…".
+// filterRow is a filter's full name followed by its type in the shadow. The
+// type is dropped, not cut, when the pane is too narrow to show both.
+func filterRow(prefix string, f snapshot.Filter, w int) string {
+	row := prefix + f.Name
+	if f.Type != "" && lipgloss.Width(row)+2+lipgloss.Width(f.Type) <= w {
+		row += "  " + dimStyle.Render(f.Type)
+	}
+	return row
+}
+
+// chainLines is a row for the label and match of every chain, one row per
+// network filter (full name, then its type in the shadow), a TLS row, and the
+// HTTP filters of the chain's HttpConnectionManager drawn as a tree below them.
+// The label column is as wide as the widest label, but at most a third of the
+// pane (never under overviewLabelW), so long Istio-style names stay
+// distinguishable; a cut label always ends with "…".
 func (it listenerItem) chainLines(w int) []string {
 	var out []string
 	labelW := 0
@@ -128,27 +140,25 @@ func (it listenerItem) chainLines(w int) []string {
 		labelW = max(labelW, lipgloss.Width(c.Label))
 	}
 	labelW = min(labelW, max(w/3, overviewLabelW))
+	indent := " " + strings.Repeat(" ", labelW) + "  "
 	for _, c := range it.l.Chains {
 		match := "any"
 		if len(c.Match) > 0 {
 			match = strings.Join(c.Match, " · ")
 		}
-		filters := strings.Join(c.Filters, ", ")
-		if c.TLS {
-			if filters != "" {
-				filters += " · "
-			}
-			filters += "TLS"
+		out = append(out, " "+pad(truncEllipsis(c.Label, labelW), labelW)+"  "+match)
+		for _, f := range c.Filters {
+			out = append(out, filterRow(indent, f, w))
 		}
-		out = append(out,
-			" "+pad(truncEllipsis(c.Label, labelW), labelW)+"  "+match,
-			" "+strings.Repeat(" ", labelW)+"  "+dimStyle.Render(filters))
-		for i, name := range c.HTTPFilters {
+		if c.TLS {
+			out = append(out, indent+dimStyle.Render("TLS"))
+		}
+		for i, f := range c.HTTPFilters {
 			glyph := "├"
 			if i == len(c.HTTPFilters)-1 {
 				glyph = "└"
 			}
-			out = append(out, " "+strings.Repeat(" ", labelW)+"    "+dimStyle.Render(glyph)+" "+name)
+			out = append(out, filterRow(indent+"  "+dimStyle.Render(glyph)+" ", f, w))
 		}
 	}
 	return out

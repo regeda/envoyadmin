@@ -161,6 +161,12 @@ func (c Chain) json() map[string]any {
 	filters := []any{}
 	for _, f := range c.Filters {
 		nf := map[string]any{"name": "envoy.filters.network." + f}
+		if f == "tcp_proxy" {
+			nf["typed_config"] = map[string]any{
+				"@type":       "type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy",
+				"stat_prefix": "demo",
+			}
+		}
 		if f == "http_connection_manager" {
 			httpFilters := []any{}
 			for _, h := range c.HTTPFilters {

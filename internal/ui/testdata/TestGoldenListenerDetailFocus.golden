@@ -14,7 +14,7 @@
                                     │                                                                                   
                                     │Filter chains (1)                                                                  
                                     │ #1  any                                                                           
-                                    │     tcp_proxy                                                                     
+                                    │     envoy.filters.network.tcp_proxy  TcpProxy                                     
                                     │                                                                                   
                                     │                                                                                   
                                     │                                                                                   

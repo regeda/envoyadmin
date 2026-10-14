@@ -161,7 +161,7 @@ func TestEnterWithAnEmptyListDoesNothing(t *testing.T) {
 func TestDetailsFocusScrollsConfigAndOverviewWithArrows(t *testing.T) {
 	l := lst("big", "0.0.0.0:1", snapshot.ListenerActive)
 	for i := 0; i < 30; i++ {
-		l.Chains = append(l.Chains, snapshot.FilterChain{Label: strings.Repeat("c", 1) + string(rune('A'+i%26)), Filters: []string{"tcp_proxy"}})
+		l.Chains = append(l.Chains, snapshot.FilterChain{Label: strings.Repeat("c", 1) + string(rune('A'+i%26)), Filters: fl("tcp_proxy")})
 	}
 	l.Config = snapshot.ConfigInfo{YAML: strings.Repeat("key: value\n", 80) + "last: line\n"}
 	m := sized(New(testOpts(nil)), 120, 30)
