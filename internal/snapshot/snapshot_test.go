@@ -112,7 +112,14 @@ func TestHostWithPipeAddressAndNoStats(t *testing.T) {
 
 type stub struct {
 	admin.Client
-	clustersErr, cfgErr, infoErr error
+	clustersErr, cfgErr, infoErr, listenersErr error
+}
+
+func (s stub) ListenerConfigs(ctx context.Context) ([]admin.ListenerConfig, error) {
+	if s.listenersErr != nil {
+		return nil, s.listenersErr
+	}
+	return s.Client.ListenerConfigs(ctx)
 }
 
 func (s stub) Clusters(ctx context.Context) (*adminv3.Clusters, error) {

@@ -17,7 +17,9 @@ type ConfigInfo struct {
 	VersionInfo string
 	LastUpdated time.Time
 	Static      bool
-	Err         string
+	// Err is set at fetch time only (config missing or its dump failed). A
+	// problem converting the JSON surfaces later, through Render.
+	Err string
 
 	lazy *lazyYAML
 }
@@ -40,7 +42,7 @@ func (c ConfigInfo) Render() (text, problem string) {
 		return "", c.Err
 	case c.YAML != "":
 		return c.YAML, ""
-	case len(c.JSON) == 0:
+	case len(c.JSON) == 0 || string(c.JSON) == "null":
 		return "", ""
 	}
 	lz := c.lazy

@@ -94,9 +94,22 @@ func (c Cluster) Health() Health {
 }
 
 type Snapshot struct {
-	Clusters  []Cluster
-	Version   string
-	FetchedAt time.Time
+	Clusters     []Cluster
+	Listeners    []Listener
+	ListenersErr string // "listeners unavailable: <reason>" when the dump failed
+	Version      string
+	FetchedAt    time.Time
+}
+
+// ListenersNotActive counts listeners that are warming, draining or in error.
+func (s Snapshot) ListenersNotActive() int {
+	n := 0
+	for _, l := range s.Listeners {
+		if l.State != ListenerActive {
+			n++
+		}
+	}
+	return n
 }
 
 // UnhealthyClusters counts clusters that are Degraded or Unhealthy.
@@ -120,14 +133,17 @@ func Fetch(ctx context.Context, c admin.Client) (Snapshot, error) {
 	}
 
 	var (
-		wg     sync.WaitGroup
-		cfgs   []admin.ClusterConfig
-		cfgErr error
-		info   *adminv3.ServerInfo
+		wg           sync.WaitGroup
+		cfgs         []admin.ClusterConfig
+		cfgErr       error
+		info         *adminv3.ServerInfo
+		lcs          []admin.ListenerConfig
+		listenersErr error
 	)
-	wg.Add(2)
+	wg.Add(3)
 	go func() { defer wg.Done(); cfgs, cfgErr = c.ClusterConfigs(ctx) }()
 	go func() { defer wg.Done(); info, _ = c.ServerInfo(ctx) }()
+	go func() { defer wg.Done(); lcs, listenersErr = c.ListenerConfigs(ctx) }()
 	wg.Wait()
 
 	cfgByName := make(map[string]admin.ClusterConfig, len(cfgs))
@@ -156,6 +172,13 @@ func Fetch(ctx context.Context, c admin.Client) (Snapshot, error) {
 		out.Clusters = append(out.Clusters, cluster)
 	}
 	sortClusters(out.Clusters)
+	if listenersErr != nil {
+		out.ListenersErr = "listeners unavailable: " + listenersErr.Error()
+	}
+	for _, lc := range lcs {
+		out.Listeners = append(out.Listeners, listenerFrom(lc))
+	}
+	sortListeners(out.Listeners)
 	return out, nil
 }
 
