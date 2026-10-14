@@ -762,32 +762,31 @@ func TestListenerConfigsSkipBadEntriesAndAcceptEmpty(t *testing.T) {
 func TestRejectedUpdateElementsAreMergedByName(t *testing.T) {
 	// Hand-written copy of the pair Envoy emits (see the real capture test below):
 	// the named element has active_state + error_state, the twin is nameless.
-	body := `{"configs":[
-	 {"@type":"type.googleapis.com/envoy.admin.v3.ListenersConfigDump.DynamicListener","name":"d",
+	const named = `{"@type":"type.googleapis.com/envoy.admin.v3.ListenersConfigDump.DynamicListener","name":"d",
 	  "active_state":{"version_info":"7","listener":{"name":"d"},"last_updated":"2026-10-14T02:48:19.499Z"},
 	  "error_state":{"failed_configuration":{"@type":"type.googleapis.com/envoy.config.listener.v3.Listener","name":"d","bad":1},
-	    "last_update_attempt":"2026-10-14T02:48:40.320Z","details":"boom\n"}},
-	 {"@type":"type.googleapis.com/envoy.admin.v3.ListenersConfigDump.DynamicListener",
-	  "error_state":{"failed_configuration":{"name":"d","bad":1},"details":"boom\n"}}]}`
-	got, err := serveListeners(t, body, `{}`).ListenerConfigs(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 1 {
-		t.Fatalf("the pair is one listener, got %d: %+v", len(got), got)
-	}
-	d := got[0]
-	if d.Name != "d" || d.Active == nil || d.Active.VersionInfo != "7" || d.Error == nil ||
-		d.Error.LastUpdateAttempt.IsZero() || d.Error.Details != "boom\n" {
-		t.Fatalf("merged listener: %+v", d)
-	}
-	// the nameless twin first: the attempt time from the named element still wins
-	reversed := `{"configs":[` + body[strings.LastIndex(body, `{"@type"`):len(body)-2] + `,` +
-		body[strings.Index(body, `{"@type"`):strings.LastIndex(body, `,
-	 {"@type"`)] + `]}`
-	got, err = serveListeners(t, reversed, `{}`).ListenerConfigs(context.Background())
-	if err != nil || len(got) != 1 || got[0].Active == nil || got[0].Error == nil || got[0].Error.LastUpdateAttempt.IsZero() {
-		t.Fatalf("order must not matter: %v %+v", err, got)
+	    "last_update_attempt":"2026-10-14T02:48:40.320Z","details":"boom\n"}}`
+	const twin = `{"@type":"type.googleapis.com/envoy.admin.v3.ListenersConfigDump.DynamicListener",
+	  "error_state":{"failed_configuration":{"name":"d","bad":1},"details":"boom\n"}}`
+
+	for name, body := range map[string]string{
+		"named first": `{"configs":[` + named + `,` + twin + `]}`,
+		"twin first":  `{"configs":[` + twin + `,` + named + `]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := serveListeners(t, body, `{}`).ListenerConfigs(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got) != 1 {
+				t.Fatalf("the pair is one listener, got %d: %+v", len(got), got)
+			}
+			d := got[0]
+			if d.Name != "d" || d.Active == nil || d.Active.VersionInfo != "7" || d.Error == nil ||
+				d.Error.LastUpdateAttempt.IsZero() || d.Error.Details != "boom\n" {
+				t.Fatalf("merged listener (the attempt time must survive either order): %+v", d)
+			}
+		})
 	}
 }
 
