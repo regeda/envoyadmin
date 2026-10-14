@@ -269,3 +269,18 @@ func TestTinyPaneDoesNotPanic(t *testing.T) {
 	l.SetClusters([]snapshot.Cluster{cl("a", 1, 1)})
 	_ = l.View()
 }
+
+// Rows must never be wider than the pane, even at the narrowest list width
+// (28), otherwise the pane wraps them onto a second line.
+func TestListRowsFitNarrowPane(t *testing.T) {
+	for _, w := range []int{28, 31, 32, 40} {
+		l := newListPane()
+		l.SetSize(w, 8)
+		l.SetClusters([]snapshot.Cluster{cl("orders-database-primary", 0, 2), cl("api-gateway", 2, 3)})
+		for i := range l.visible {
+			if rw := lipgloss.Width(l.row(i)); rw > w {
+				t.Fatalf("w=%d row %d width %d: %q", w, i, rw, l.row(i))
+			}
+		}
+	}
+}

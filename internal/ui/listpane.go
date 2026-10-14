@@ -187,7 +187,9 @@ func (l listPane) filterLine() string {
 func (l listPane) row(i int) string {
 	m := l.visible[i]
 	c := l.all[m.idx]
-	nameW := max(l.width-fixedW, 8)
+	// In the narrowest pane the type column gives way so a row never wraps.
+	tw := max(min(typeW, l.width-(fixedW-typeW)-8), 1)
+	nameW := max(l.width-(fixedW-typeW+tw), 8)
 
 	plain := trunc(c.Name, nameW)
 	hit := map[int]bool{}
@@ -213,7 +215,7 @@ func (l listPane) row(i int) string {
 	}
 	count := fmt.Sprintf("%d/%d", c.HealthyCount(), len(c.Hosts))
 	countCell := strings.Repeat(" ", max(countW-lipgloss.Width(count), 0)) + count
-	typeCell := pad(trunc(c.Type, typeW), typeW)
+	typeCell := pad(trunc(c.Type, tw), tw)
 
 	line := prefix + markerStyle(c.Health()).Render("●") + " " + name.String() + namePad + " " + typeCell + " " + countCell
 	if c.Health() == snapshot.Empty {

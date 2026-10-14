@@ -125,7 +125,7 @@ func endpointLines(c snapshot.Cluster, w, h, scroll int) []string {
 	}
 
 	summary := fmt.Sprintf("%d hosts · %d healthy · %d ejected", len(c.Hosts), c.HealthyCount(), c.EjectedCount())
-	header := dimStyle.Render(row("ADDRESS", pad("FLAGS", flagsW), "WEIGHT", "ZONE", "RQ_ACTIVE", "RQ_ERR", "CX_ACTIVE"))
+	header := dimStyle.Render(row("ADDRESS", pad(trunc("FLAGS", flagsW), flagsW), "WEIGHT", "ZONE", "RQ_ACTIVE", "RQ_ERR", "CX_ACTIVE"))
 
 	lines := []string{summary, header}
 	if len(hosts) == 0 {

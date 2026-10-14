@@ -253,3 +253,17 @@ func TestEndpointsUnixAddressWholeAtPaneWidth(t *testing.T) {
 		t.Fatalf("width %d header %q", lipgloss.Width(lines[2]), lines[1])
 	}
 }
+
+// At the 80-column minimum the detail pane is 51 wide; the unclipped header
+// must still show every remaining column (found by the narrow goldens).
+func TestEndpointsHeaderFitsAtMinimumTerminalWidth(t *testing.T) {
+	for _, w := range []int{51, 55} {
+		lines := endpointLines(typicalCluster(), w, 8, 0)
+		if hw := lipgloss.Width(lines[1]); hw > w {
+			t.Fatalf("w=%d unclipped header width %d: %q", w, hw, lines[1])
+		}
+		if !strings.Contains(lines[1], "CX_ACTIVE") {
+			t.Fatalf("w=%d header lost CX_ACTIVE: %q", w, lines[1])
+		}
+	}
+}
