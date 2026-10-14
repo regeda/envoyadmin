@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -117,7 +118,7 @@ func TestBannerRowsAreRedAndContentIntact(t *testing.T) {
 	defer lipgloss.SetColorProfile(prev)
 	rows := bannerLines(strings.Repeat("x", 500), 30, 3)
 	for _, r := range rows {
-		if !strings.Contains(r, "\x1b[") || !strings.Contains(r, "41") {
+		if !hasRedBackground(r) || !strings.HasSuffix(r, "\x1b[0m") {
 			t.Fatalf("row not styled: %q", r)
 		}
 		plain := ansi.Strip(r)
@@ -125,7 +126,7 @@ func TestBannerRowsAreRedAndContentIntact(t *testing.T) {
 			t.Fatalf("content missing: %q", plain)
 		}
 	}
-	if !strings.HasSuffix(ansi.Strip(rows[2]), "…"+strings.Repeat(" ", 0)) && !strings.Contains(ansi.Strip(rows[2]), "…") {
+	if !strings.Contains(ansi.Strip(rows[2]), "…") {
 		t.Fatalf("ellipsis missing: %q", rows[2])
 	}
 	// no row exceeds width before any padding: exact content is <= width-1 cells
@@ -200,5 +201,70 @@ func TestStatusNeverExceedsWidth(t *testing.T) {
 		if lipgloss.Width(s) > w {
 			t.Fatalf("w=%d width %d", w, lipgloss.Width(s))
 		}
+	}
+}
+
+var sgrRe = regexp.MustCompile("\x1b\\[([0-9;]*)m")
+
+// hasRedBackground reports whether some SGR sequence carries the red
+// background (41) as its own parameter.
+func hasRedBackground(s string) bool {
+	for _, m := range sgrRe.FindAllStringSubmatch(s, -1) {
+		for _, p := range strings.Split(m[1], ";") {
+			if p == "41" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func TestBannerTabsStayWithinWidth(t *testing.T) {
+	rows := bannerLines("GET\t/clusters:\t\tdial\ttcp\t127.0.0.1\t\t\trefused\tx\ty", 30, 6)
+	for _, r := range rows {
+		if lipgloss.Width(r) != 30 || strings.Contains(r, "\t") {
+			t.Fatalf("width %d: %q", lipgloss.Width(r), r)
+		}
+	}
+	if !strings.Contains(ansi.Strip(rows[0]), "GET") {
+		t.Fatalf("%q", rows[0])
+	}
+}
+
+func TestSanitizeBannerText(t *testing.T) {
+	got := sanitizeBannerText("a\tb\r\nc\x07d\x1be\n\r\n")
+	if got != "a    b\nc d e" {
+		t.Fatalf("%q", got)
+	}
+}
+
+func TestBannerWideCharacters(t *testing.T) {
+	rows := bannerLines(strings.Repeat("集群错误", 30), 21, 3)
+	for _, r := range rows {
+		if lipgloss.Width(r) != 21 {
+			t.Fatalf("width %d: %q", lipgloss.Width(r), ansi.Strip(r))
+		}
+	}
+	if !strings.Contains(ansi.Strip(rows[2]), "…") {
+		t.Fatal("ellipsis missing")
+	}
+}
+
+func TestBannerTrailingNewlineIsNotARow(t *testing.T) {
+	rows := bannerLines("one\ntwo\r\n\n", 20, 2)
+	if len(rows) != 2 {
+		t.Fatalf("rows=%d", len(rows))
+	}
+	for _, r := range rows {
+		if strings.Contains(r, "…") {
+			t.Fatalf("spurious ellipsis: %q", r)
+		}
+	}
+}
+
+func TestOverlayBannerTallerThanFrame(t *testing.T) {
+	got := strings.Split(overlay("l1\nl2", []string{"B1", "B2", "B3"}), "\n")
+	if len(got) != 3 || got[0] != "B1" || got[1] != "B2" || got[2] != "B3" {
+		t.Fatalf("banner rows beyond the frame are appended: %q", got)
 	}
 }

@@ -48,6 +48,19 @@ func renderHeader(width int, compact bool, conn1, conn2, tab string) string {
 	}, "\n")
 }
 
+// sanitizeBannerText makes text safe to measure and render: CR is dropped,
+// trailing newlines are trimmed, tabs become four spaces (lipgloss would
+// expand them after we measured) and other control characters become a space.
+func sanitizeBannerText(s string) string {
+	s = strings.TrimRight(strings.ReplaceAll(s, "\r", ""), "\n")
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 && r != '\n' || r == 0x7f {
+			return ' '
+		}
+		return r
+	}, strings.ReplaceAll(s, "\t", "    "))
+}
+
 // bannerLines wraps text to width, caps it at maxRows (ending with an
 // ellipsis when cut) and paints each row exactly width cells wide on a red
 // background. Rows are clipped explicitly; lipgloss Width() is not used since
@@ -57,7 +70,7 @@ func bannerLines(text string, width, maxRows int) []string {
 		return nil
 	}
 	inner := max(width-2, 1)
-	rows := strings.Split(ansi.Wrap(text, inner, ""), "\n")
+	rows := strings.Split(ansi.Wrap(sanitizeBannerText(text), inner, ""), "\n")
 	if len(rows) > maxRows {
 		rows = rows[:maxRows]
 		last := strings.TrimRight(trunc(rows[maxRows-1], max(inner-1, 1)), " ")
