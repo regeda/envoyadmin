@@ -5,7 +5,6 @@
 / virtualInbound                    │  virtualInbound  ·  Overview | Config                                             
 >● virtualInbound      0.0.0.0:15006│Bind address  0.0.0.0:15006                                                        
                                     │State         active                                                               
-                                    │version_info  7                                                                    
                                     │last_updated  2026-10-14 10:00:00Z                                                 
                                     │                                                                                   
                                     │Filter chains (3)                                                                  
@@ -15,6 +14,7 @@
                                     │          http_connection_manager                                                  
                                     │ default  any                                                                      
                                     │          tcp_proxy                                                                
+                                    │                                                                                   
                                     │                                                                                   
                                     │                                                                                   
                                     │                                                                                   

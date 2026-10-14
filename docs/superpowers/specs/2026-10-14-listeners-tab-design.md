@@ -11,7 +11,7 @@ Success criteria:
 
 - A listener is found by typing part of its name or bind address in the fuzzy filter.
 - State (active, warming, draining, error, static) is visible in the list without relying on colour.
-- The Overview shows exactly: bind address, state, `version_info`, `last_updated`, and the filter chains.
+- The Overview shows exactly: bind address, state, `last_updated`, and the filter chains. `version_info` is not shown here; the Config tab header carries it.
 - A rejected update (`error_state`) is obvious in the list and explained in the Overview.
 - Tab / Shift+Tab switch between Clusters and Listeners; Enter focuses the details; Esc returns to the list.
 - One shared list pane and one shared details pane serve both resources, so a later resource (routes, certs) is one more item type.
@@ -208,7 +208,6 @@ The name is on the left, the address is right-aligned and sized per row, not to 
 ```
 Bind address  0.0.0.0:15001
 State         active
-version_info  42
 last_updated  2026-10-14 10:00:00Z
 
 Filter chains (3)
@@ -220,7 +219,7 @@ Filter chains (3)
           tcp_proxy
 ```
 
-- The property rows and the `Filter chains (N)` heading are sticky; only the chain lines scroll (two lines per chain, clamped by `OverviewMaxScroll`).
+- The three property rows and the `Filter chains (N)` heading are sticky; only the chain lines scroll (two lines per chain, clamped by `OverviewMaxScroll`).
 - State values: `active`, `static`, `warming`, `draining`, `error`.
 - An error adds a red block under State with the details, word-wrapped and capped at 4 lines; it says `still serving the previous configuration` when `ServingOld` is set. The rejected YAML is on the Config tab.
 - Long match and filter lines are clipped with `…`, never silently; the full text is in Config.

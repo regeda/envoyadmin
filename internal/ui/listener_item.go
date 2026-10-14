@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	overviewLabelW = 14 // "version_info" (12) + 2 spaces
+	overviewLabelW = 14 // "Bind address"/"last_updated" (12) + 2 spaces
 	addrMaxW       = 21 // widest address cell in a row
 	nameMinW       = 8
 	errorMaxRows   = 4
@@ -80,7 +80,7 @@ func prop(label, value string) string {
 	return dimStyle.Render(pad(label, overviewLabelW)) + value
 }
 
-// sticky returns the rows that never scroll: the four properties, the error
+// sticky returns the rows that never scroll: the three properties, the error
 // block (error state only) and the chain heading.
 func (it listenerItem) sticky(w int) []string {
 	l := it.l
@@ -88,7 +88,6 @@ func (it listenerItem) sticky(w int) []string {
 	lines := []string{
 		prop("Bind address", orDash(l.Address)),
 		prop("State", stStyle.Render(l.StateText())),
-		prop("version_info", orDash(l.VersionInfo)),
 	}
 	updated := "-"
 	if !l.LastUpdated.IsZero() {

@@ -7,7 +7,7 @@ a list on the left, details on the right, and a header showing the connection st
 - Endpoints tab: address, health flags (`FAILED_ACTIVE_HC`, `FAILED_OUTLIER_CHECK`, `EDS_STATUS_UNHEALTHY`, ...), weight, zone, `rq_active` / `rq_error` / `cx_active`.
 - Config tab (`c`): the cluster's config from `/config_dump` as highlighted, line-numbered YAML, with `version_info` and `last_updated`.
 - Listeners tab: name and address with a state glyph (`●` active or static, `◐` warming or draining, `✗` rejected update), sorted problems first. `/` fuzzy-filters by name and address.
-- Listener Overview (`o`): bind address, state, `version_info`, `last_updated`, the error of a rejected update (with a note when an earlier configuration is still serving) and the filter chains with their match and filters. The Config tab (`c`) shows the listener as numbered YAML.
+- Listener Overview (`o`): bind address, state, `last_updated`, the error of a rejected update (with a note when an earlier configuration is still serving) and the filter chains with their match and filters. The Config tab (`c`) shows the listener as numbered YAML.
 - A failing listener dump never raises the error banner: the tab reads `Listeners (!)` with an inline message and Clusters keep working.
 - Auto-refresh; the UI never blocks on HTTP. Errors appear as a red banner over the top of the screen and clear when Envoy answers again.
 

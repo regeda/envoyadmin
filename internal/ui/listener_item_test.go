@@ -121,7 +121,6 @@ func TestListenerOverviewLayout(t *testing.T) {
 	want := []string{
 		kv("Bind address", "0.0.0.0:15001"),
 		kv("State", "active"),
-		kv("version_info", "42"),
 		kv("last_updated", "2026-10-14 10:00:00Z"),
 		"",
 		"Filter chains (3)",
@@ -134,7 +133,10 @@ func TestListenerOverviewLayout(t *testing.T) {
 			t.Fatalf("row %d = %q, want %q", i, got, w)
 		}
 	}
-	chains := ansiStrip(strings.Join(rows[6:12], "\n"))
+	if strings.Contains(ansiStrip(strings.Join(rows, "\n")), "version_info") {
+		t.Fatal("the Overview does not show version_info (it is in the Config tab header)")
+	}
+	chains := ansiStrip(strings.Join(rows[5:11], "\n"))
 	for _, frag := range []string{
 		fmt.Sprintf(" %-7s  %s", "#1", "sni=a.com,b.com · port=443 · transport=tls"),
 		"http_connection_manager · TLS",
@@ -155,7 +157,7 @@ func TestListenerOverviewStateAndBlanks(t *testing.T) {
 	static.Static, static.VersionInfo, static.LastUpdated, static.Chains = true, "", time.Time{}, nil
 	rows := overviewRows(item0(static), 60, 10, 0)
 	text := ansiStrip(strings.Join(rows, "\n"))
-	for _, frag := range []string{kv("Bind address", "-"), kv("State", "static"), kv("version_info", "-"), kv("last_updated", "-"), "Filter chains (0)"} {
+	for _, frag := range []string{kv("Bind address", "-"), kv("State", "static"), kv("last_updated", "-"), "Filter chains (0)"} {
 		if !strings.Contains(text, frag) {
 			t.Fatalf("missing %q:\n%s", frag, text)
 		}
