@@ -1,6 +1,7 @@
 package demo
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -149,4 +150,24 @@ func TestConcurrentUpdateAndServe(t *testing.T) {
 	}
 	close(stop)
 	<-done
+}
+
+func TestJitterTogglesHealth(t *testing.T) {
+	s := NewServer(Degraded())
+	srv := httptest.NewServer(s)
+	defer srv.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	_, before := get(t, srv.URL+"/clusters?format=json")
+	go s.Jitter(ctx, 10*time.Millisecond)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, now := get(t, srv.URL+"/clusters?format=json"); now != before {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("jitter never changed the cluster health")
 }

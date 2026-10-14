@@ -1,6 +1,7 @@
 package demo
 
 import (
+	"context"
 	"net"
 	"net/http"
 	"sync"
@@ -109,4 +110,32 @@ func (s *Server) Start() (string, func(), error) {
 	srv := &http.Server{Handler: s}
 	go srv.Serve(ln)
 	return "http://" + ln.Addr().String(), func() { srv.Close() }, nil
+}
+
+// Jitter flips the first host of the "search" cluster between healthy and
+// failing health checks every interval, so --demo shows live changes.
+func (s *Server) Jitter(ctx context.Context, every time.Duration) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	failing := false
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			failing = !failing
+			s.Update(func(sc *Scenario) {
+				for i := range sc.Clusters {
+					if sc.Clusters[i].Name != "search" || len(sc.Clusters[i].Hosts) == 0 {
+						continue
+					}
+					if failing {
+						sc.Clusters[i].Hosts[0].Health = map[string]any{"failed_active_health_check": true, "eds_health_status": "UNHEALTHY"}
+					} else {
+						sc.Clusters[i].Hosts[0].Health = nil
+					}
+				}
+			})
+		}
+	}
 }
