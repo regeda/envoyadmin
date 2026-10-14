@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -70,26 +71,42 @@ func (it secretItem) Row(ctx rowCtx) string {
 	return trunc(line, ctx.Width)
 }
 
+const notLoadedMarker = "(not loaded)"
+
 // secretUseLine is a secret a cluster or listener references; one Envoy has not
-// loaded carries a marker, since that is the out-of-sync case.
+// loaded carries a leading marker, since that is the out-of-sync case, and
+// truncation must cut the name rather than the marker.
 func secretUseLine(u snapshot.SecretUse) string {
 	if u.Loaded {
 		return u.Name
 	}
-	return u.Name + " " + badStyle.Render("(not loaded)")
+	return badStyle.Render(notLoadedMarker) + " " + u.Name
 }
 
-// secretUsesRow is the "Secrets" property row shared by cluster and listener
-// overviews, or nil when nothing is referenced.
-func secretUsesRow(uses []snapshot.SecretUse) []string {
+// secretUsesRows are the "Secrets" rows shared by cluster and listener
+// overviews: one row per secret, unloaded first, nil when nothing is
+// referenced. The row count never depends on w. When the value column is too
+// narrow to hold the marker and some of the name, the label column is dropped
+// so the marker stays visible.
+func secretUsesRows(uses []snapshot.SecretUse, w int) []string {
 	if len(uses) == 0 {
 		return nil
 	}
-	names := make([]string, len(uses))
-	for i, u := range uses {
-		names[i] = secretUseLine(u)
+	sorted := append([]snapshot.SecretUse(nil), uses...)
+	sort.SliceStable(sorted, func(i, j int) bool { return !sorted[i].Loaded && sorted[j].Loaded })
+	compact := w < overviewLabelW+len(notLoadedMarker)+2
+	rows := make([]string, len(sorted))
+	for i, u := range sorted {
+		switch {
+		case compact:
+			rows[i] = secretUseLine(u)
+		case i == 0:
+			rows[i] = prop("Secrets", secretUseLine(u))
+		default:
+			rows[i] = prop("", secretUseLine(u))
+		}
 	}
-	return []string{prop("Secrets", strings.Join(names, ", "))}
+	return rows
 }
 
 func (it secretItem) sticky() []string {

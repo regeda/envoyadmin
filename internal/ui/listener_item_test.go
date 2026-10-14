@@ -681,11 +681,41 @@ func TestListenerOverviewListsSecrets(t *testing.T) {
 	l := lst("api", "0.0.0.0:8080", snapshot.ListenerActive)
 	l.Secrets = []snapshot.SecretUse{{Name: "server-cert", Loaded: true}, {Name: "ghost", Loaded: false}}
 	out := ansiStrip(item0(l).Overview(100, 20, 0))
-	if !strings.Contains(out, "Secrets") || !strings.Contains(out, "server-cert") || !strings.Contains(out, "ghost (not loaded)") {
+	if !strings.Contains(out, "Secrets") || !strings.Contains(out, "server-cert") || !strings.Contains(out, "(not loaded) ghost") {
 		t.Fatalf("listener overview:\n%s", out)
 	}
 	none := ansiStrip(item0(lst("api", "0.0.0.0:8080", snapshot.ListenerActive)).Overview(100, 20, 0))
 	if strings.Contains(none, "Secrets") {
 		t.Fatalf("no row without secrets:\n%s", none)
+	}
+}
+
+func TestListenerOverviewKeepsNotLoadedMarkerWhenNarrow(t *testing.T) {
+	l := lst("api", "0.0.0.0:8080", snapshot.ListenerActive)
+	l.Secrets = []snapshot.SecretUse{{Name: "a-cert", Loaded: true}, {Name: "a-very-long-missing-secret-name", Loaded: false}, {Name: "b-cert", Loaded: true}}
+	out := ansiStrip(item0(l).Overview(20, 20, 0))
+	if !strings.Contains(out, "(not loaded)") {
+		t.Fatalf("marker lost:\n%s", out)
+	}
+	wide := ansiStrip(item0(l).Overview(100, 20, 0))
+	if strings.Index(wide, "(not loaded)") > strings.Index(wide, "a-cert") {
+		t.Fatalf("unloaded secrets must come first:\n%s", wide)
+	}
+}
+
+func TestListenerOverviewSecretRowsKeepScrollCorrect(t *testing.T) {
+	l := lst("api", "0.0.0.0:8080", snapshot.ListenerActive)
+	l.Secrets = []snapshot.SecretUse{{Name: "a", Loaded: true}, {Name: "b", Loaded: false}, {Name: "c", Loaded: true}}
+	for i := 0; i < 20; i++ {
+		l.Chains = append(l.Chains, snapshot.FilterChain{Label: fmt.Sprintf("chain%02d", i), Filters: fl("tcp_proxy")})
+	}
+	it := item0(l)
+	const h = 14
+	last := ansiStrip(it.Overview(100, h, it.OverviewMaxScroll(100, h)))
+	if !strings.Contains(last, "chain19") || len(strings.Split(last, "\n")) != h {
+		t.Fatalf("scrolled to the end:\n%s", last)
+	}
+	if strings.Contains(last, "chain00") {
+		t.Fatalf("not at the end:\n%s", last)
 	}
 }

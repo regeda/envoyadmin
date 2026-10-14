@@ -401,20 +401,20 @@ func TestClusterEndpointsViewListsSecrets(t *testing.T) {
 	c := cl("api", 1, 2)
 	c.Secrets = []snapshot.SecretUse{{Name: "mesh-ca", Loaded: true}, {Name: "ghost", Loaded: false}}
 	out := ansiStrip(renderEndpoints(c, 100, 20, 0))
-	if !strings.Contains(out, "Secrets") || !strings.Contains(out, "mesh-ca") || !strings.Contains(out, "ghost (not loaded)") {
+	if !strings.Contains(out, "Secrets") || !strings.Contains(out, "mesh-ca") || !strings.Contains(out, "(not loaded) ghost") {
 		t.Fatalf("cluster view:\n%s", out)
 	}
 }
 
-// The Secrets row is sticky: scrolling to the end must still show the last host.
-func TestSecretsRowKeepsMaxEndpointScrollCorrect(t *testing.T) {
-	c := snapshot.Cluster{Name: "api", Secrets: []snapshot.SecretUse{{Name: "mesh-ca", Loaded: true}}}
+// Secret rows are sticky: scrolling to the end must still show the last host.
+func TestSecretRowsKeepMaxEndpointScrollCorrect(t *testing.T) {
+	c := snapshot.Cluster{Name: "api", Secrets: []snapshot.SecretUse{{Name: "mesh-ca", Loaded: true}, {Name: "ghost", Loaded: false}, {Name: "x", Loaded: true}}}
 	for i := 0; i < 30; i++ {
 		c.Hosts = append(c.Hosts, snapshot.Host{Address: fmt.Sprintf("10.0.0.%02d:80", i), Weight: 1})
 	}
-	const h = 10
-	if m := maxEndpointScroll(c, h); m != 30-(h-4) {
-		t.Fatalf("maxEndpointScroll = %d, want %d", m, 30-(h-4))
+	const h = 12
+	if m := maxEndpointScroll(c, h); m != 30-(h-6) {
+		t.Fatalf("maxEndpointScroll = %d, want %d", m, 30-(h-6))
 	}
 	out := ansiStrip(renderEndpoints(c, 100, h, maxEndpointScroll(c, h)))
 	if !strings.Contains(out, "mesh-ca") || !strings.Contains(out, "10.0.0.29:80") {
@@ -422,5 +422,14 @@ func TestSecretsRowKeepsMaxEndpointScrollCorrect(t *testing.T) {
 	}
 	if n := len(strings.Split(out, "\n")); n != h {
 		t.Fatalf("lines = %d, want %d", n, h)
+	}
+}
+
+func TestClusterKeepsNotLoadedMarkerWhenNarrow(t *testing.T) {
+	c := cl("api", 1, 2)
+	c.Secrets = []snapshot.SecretUse{{Name: "a-cert", Loaded: true}, {Name: "a-very-long-missing-secret-name", Loaded: false}, {Name: "b-cert", Loaded: true}}
+	out := ansiStrip(renderEndpoints(c, 20, 20, 0))
+	if !strings.Contains(out, "(not loaded)") {
+		t.Fatalf("marker lost:\n%s", out)
 	}
 }

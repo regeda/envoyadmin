@@ -1,7 +1,10 @@
 package ui
 
 import (
+	"encoding/json"
 	"fmt"
+	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -171,7 +174,7 @@ func TestSecretOverviewUnknownExpiryIsDash(t *testing.T) {
 	s := sec("noexp", "1", snapshot.SecretActive)
 	s.Cert = &snapshot.CertInfo{Serial: "04"}
 	out := ansiStrip(secItem0(s).Overview(80, 12, 0))
-	if !strings.Contains(out, "Expires") || strings.Contains(out, "expired") || strings.Contains(out, "days") {
+	if !regexp.MustCompile(`Expires\s+-\s*(\n|$)`).MatchString(out) || strings.Contains(out, "expired") || strings.Contains(out, "days") {
 		t.Fatalf("zero NotAfter:\n%s", out)
 	}
 }
@@ -191,20 +194,84 @@ func TestSecretOverviewScrollsUsedBy(t *testing.T) {
 	}
 }
 
-// Review focus: secret content must never be rendered. The snapshot types have
-// no field for it, so this guards the decode-to-render path end to end.
-func TestSecretContentNeverRendered(t *testing.T) {
-	s := sec("server-cert", "12", snapshot.SecretActive)
+func TestSecretConfigTabSaysContentIsNeverDisplayed(t *testing.T) {
 	m := sized(New(testOpts(nil)), 120, 30)
-	m = send(m, snapshotMsg{snap: snapshot.Snapshot{FetchedAt: fixedNow, Secrets: []snapshot.Secret{s}}})
+	m = send(m, snapshotMsg{snap: snapshot.Snapshot{FetchedAt: fixedNow, Secrets: []snapshot.Secret{sec("server-cert", "12", snapshot.SecretActive)}}})
 	m = send(send(m, key("tab")), key("tab"))
 	for _, k := range []string{"o", "c"} {
-		if v := m.View(); strings.Contains(v, "SENTINEL-PRIVATE-KEY") || strings.Contains(v, "BEGIN") {
-			t.Fatalf("view leaked content:\n%s", v)
-		}
 		m = send(m, key(k))
 	}
 	if v := m.View(); !strings.Contains(v, "secret content is never displayed") {
 		t.Fatalf("Config tab note missing:\n%s", v)
+	}
+}
+
+func TestSecretOverviewHasNoKeyMaterial(t *testing.T) {
+	s := sec("server-cert", "12", snapshot.SecretActive)
+	s.Cert = &snapshot.CertInfo{Serial: "0a1b", SANs: []string{"a.example.com"}, NotAfter: fixedNow.Add(24 * time.Hour), DaysLeft: 1}
+	s.UsedBy = []snapshot.Ref{{Kind: "cluster", Name: "api"}}
+	out := secItem0(s).Overview(100, 20, 0)
+	if strings.Contains(out, "BEGIN") || strings.Contains(out, "PRIVATE KEY") {
+		t.Fatalf("overview leaked content:\n%s", out)
+	}
+}
+
+// The snapshot types must have no field that could hold a secret body: only
+// plain scalars, time, and the allowed nested shapes.
+func TestSecretSnapshotTypesCannotCarryContent(t *testing.T) {
+	var walk func(path string, ty reflect.Type)
+	walk = func(path string, ty reflect.Type) {
+		if ty == reflect.TypeOf(time.Time{}) {
+			return
+		}
+		if ty == reflect.TypeOf(json.RawMessage(nil)) {
+			t.Errorf("%s is json.RawMessage", path)
+			return
+		}
+		switch ty.Kind() {
+		case reflect.String, reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+			reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		case reflect.Pointer:
+			walk(path+"*", ty.Elem())
+		case reflect.Slice:
+			if ty.Elem().Kind() == reflect.Uint8 {
+				t.Errorf("%s is a byte slice", path)
+				return
+			}
+			walk(path+"[]", ty.Elem())
+		case reflect.Struct:
+			for i := 0; i < ty.NumField(); i++ {
+				f := ty.Field(i)
+				walk(path+"."+f.Name, f.Type)
+			}
+		default: // map, interface, array, chan, func, ...
+			t.Errorf("%s has kind %s, which could hold a secret body", path, ty.Kind())
+		}
+	}
+	walk("Secret", reflect.TypeOf(snapshot.Secret{}))
+	walk("CertInfo", reflect.TypeOf(snapshot.CertInfo{}))
+}
+
+func TestSecretOverviewSmallSizes(t *testing.T) {
+	s := sec("busy", "1", snapshot.SecretActive)
+	s.Cert = &snapshot.CertInfo{Serial: "0a", SANs: []string{"a.example.com"}, NotAfter: fixedNow.Add(48 * time.Hour), DaysLeft: 2}
+	s.UsedBy = []snapshot.Ref{{Kind: "cluster", Name: "api"}}
+	it := secItem0(s)
+	for _, h := range []int{1, 3, 5} { // h <= sticky length
+		if n := len(strings.Split(it.Overview(80, h, 0), "\n")); n != h {
+			t.Fatalf("h=%d: got %d lines", h, n)
+		}
+	}
+	for _, w := range []int{1, 3, 5} {
+		out := ansiStrip(it.Overview(w, 12, 0))
+		lines := strings.Split(out, "\n")
+		if len(lines) != 12 {
+			t.Fatalf("w=%d: got %d lines", w, len(lines))
+		}
+		for _, l := range lines {
+			if lipgloss.Width(l) > w {
+				t.Fatalf("w=%d: line %q too wide", w, l)
+			}
+		}
 	}
 }

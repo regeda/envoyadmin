@@ -13,13 +13,8 @@ import (
 )
 
 // endpointHeadRows are the rows above the host table: summary, version, header,
-// plus a Secrets row when the cluster references any.
-func endpointHeadRows(c snapshot.Cluster) int {
-	if len(c.Secrets) > 0 {
-		return 4
-	}
-	return 3
-}
+// plus one row per secret the cluster references.
+func endpointHeadRows(c snapshot.Cluster) int { return 3 + len(c.Secrets) }
 
 const (
 	minAddrW      = 7 // header "ADDRESS"
@@ -184,7 +179,7 @@ func endpointLines(c snapshot.Cluster, w, h, scroll int) []string {
 	header := dimStyle.Render(row("ADDRESS", pad(trunc("FLAGS", flagsW), flagsW), "WEIGHT", "ZONE", "RQ_ACTIVE", "RQ_ERR", "CX_ACTIVE"))
 
 	lines := []string{summary, prop("Version", orDash(c.Config.VersionInfo))}
-	lines = append(lines, secretUsesRow(c.Secrets)...)
+	lines = append(lines, secretUsesRows(c.Secrets, w)...)
 	lines = append(lines, header)
 	if len(hosts) == 0 {
 		lines = append(lines, dimStyle.Render("no hosts"))
