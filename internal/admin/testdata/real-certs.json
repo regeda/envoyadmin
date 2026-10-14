@@ -1,0 +1,21 @@
+{
+ "certificates": [
+  {
+   "ca_cert": [],
+   "cert_chain": [
+    {
+     "path": "\u003cinline\u003e",
+     "serial_number": "4e77ed433ec7c87a1736f90cbaf85b985c25d9eb",
+     "subject_alt_names": [
+      {
+       "dns": "capture.example.com"
+      }
+     ],
+     "days_until_expiration": "3649",
+     "valid_from": "2026-10-14T11:52:18Z",
+     "expiration_time": "2036-10-11T11:52:18Z"
+    }
+   ]
+  }
+ ]
+}

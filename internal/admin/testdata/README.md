@@ -58,3 +58,45 @@ as-is. It is made from `capture/bootstrap-hcm.yaml`: one static listener `static
 from the admin port (9901). The HCM `typed_config` carries
 `@type: type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager`
 and `http_filters[].name`, which is what the Listener Overview's HTTP filter tree reads.
+
+## Secrets captures
+
+Genuine captures from `envoyproxy/envoy:v1.31-latest`, version string
+`f30db0a84189cf3e681687a4a2fa1788062592d0/1.31.10/Clean/RELEASE/BoringSSL`, saved
+as-is. The certificate and key are throwaway (CN=envoyadmin-capture); Envoy redacts
+the key in every dump.
+
+- real-secrets-dynamic.json  GET /config_dump?resource=dynamic_active_secrets
+- real-secrets-static.json   GET /config_dump?resource=static_secrets
+- real-certs.json            GET /certs
+
+Inputs are `capture/bootstrap-sds.yaml` (static secret `bootstrap-cert`, listener
+`tls_listener` using SDS secret `server-cert`), `capture/sds.yaml` (file-based SDS,
+version "12") and `capture/server.crt`. Mount `capture/` at `/etc/envoy`:
+
+    docker run -d --name envoy-cap -v "$PWD/internal/admin/testdata/capture:/etc/envoy" -p 9901:9901 envoyproxy/envoy:v1.31-latest -c /etc/envoy/bootstrap-sds.yaml
+    curl -s 'localhost:9901/config_dump?resource=dynamic_active_secrets' > real-secrets-dynamic.json
+    curl -s 'localhost:9901/config_dump?resource=static_secrets' > real-secrets-static.json
+    curl -s localhost:9901/certs > real-certs.json
+    docker rm -f envoy-cap
+
+### How /certs identifies an SDS secret
+
+It does not: `/certs` carries no secret name. The `server-cert` entry (the only one
+listed; `bootstrap-cert` is used by no TLS context, so it is absent) is
+`"path": "\u003cinline\u003e"` (the literal string `<inline>`) inside `cert_chain[]`,
+next to `serial_number`, `subject_alt_names`, `days_until_expiration`, `valid_from`
+and `expiration_time`. An inline SDS cert is identifiable only by `path == "<inline>"`
+(shared with any other inline cert) and by matching serial number or SANs, never by
+name. A file-based cert would show its file path instead. The body is
+`{"certificates":[{"ca_cert":[],"cert_chain":[...]}]}`.
+
+### Secret config_dump shape notes
+
+- With `?resource=`, `configs[]` holds one element per secret, `@type`
+  `type.googleapis.com/envoy.admin.v3.SecretsConfigDump.DynamicSecret` or `.StaticSecret`.
+- Each element has a top-level `name`; dynamic ones also have `version_info` and
+  `last_updated` (e.g. `2026-10-14T11:52:22.479Z`); static ones have neither.
+- `secret` is the Secret proto with its own `@type` and `name`, plus one kind field
+  (`tls_certificate`). The private key is `"[redacted]"`, but the certificate chain
+  PEM is included, so the decoder still drops the body.

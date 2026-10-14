@@ -136,3 +136,24 @@ func TestSecretConfigsHTTPErrorNamesTheResource(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestRealCaptureSecretConfigs(t *testing.T) {
+	c := serveSecrets(t, string(capture(t, "real-secrets-dynamic.json")), `{}`, string(capture(t, "real-secrets-static.json")))
+	got, err := c.SecretConfigs(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	by := map[string]SecretConfig{}
+	for _, s := range got {
+		by[s.Name] = s
+	}
+	if s := by["server-cert"]; s.State != SecretActive || s.VersionInfo != "12" || s.Kind != "tls_certificate" || s.LastUpdated.IsZero() {
+		t.Fatalf("server-cert: %+v", s)
+	}
+	if s := by["bootstrap-cert"]; s.State != SecretStatic || s.Kind != "tls_certificate" {
+		t.Fatalf("bootstrap-cert: %+v", s)
+	}
+	if strings.Contains(formatAll(got), "PRIVATE KEY") {
+		t.Fatal("secret content leaked")
+	}
+}

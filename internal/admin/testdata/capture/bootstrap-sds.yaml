@@ -1,0 +1,87 @@
+node: {id: envoyadmin-capture, cluster: envoyadmin}
+admin:
+  address: {socket_address: {address: 0.0.0.0, port_value: 9901}}
+static_resources:
+  secrets:
+  - name: bootstrap-cert
+    tls_certificate:
+      certificate_chain:
+        inline_string: |
+          -----BEGIN CERTIFICATE-----
+          MIIDGjCCAgKgAwIBAgIUTnftQz7HyHoXNvkMuvhbmFwl2eswDQYJKoZIhvcNAQEL
+          BQAwHTEbMBkGA1UEAwwSZW52b3lhZG1pbi1jYXB0dXJlMB4XDTI2MTAxNDExNTIx
+          OFoXDTM2MTAxMTExNTIxOFowHTEbMBkGA1UEAwwSZW52b3lhZG1pbi1jYXB0dXJl
+          MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAlPF58K00GkKt3kQHIiY0
+          cWD6dq5PDnRTiyOwLk4Q5KQsCPxS/wadG6WqCzZ3YSrZkmWp051FfarU33PrkwtX
+          QXhll6nB8dZN7oqrMz5Ly5JnbBXkYgxk64MjHhndesWQLjqYWHyFdIaJm0bKeY6n
+          YNQKQfwEzXWhpSLiK5Cj7HMU5Gidb9An6cONF4rYzJiPRufXQ0rz6U0ENumiqBu2
+          phlFFX9JYK+eUHkvXuh83jJjX/tXibm7PoQXIODngxIUq2ux+HNTnKi0NviFc94e
+          zPjpJQW4PvPaModf1r8W5g6h5/M7YKkqkBO8obpRef2fjKaOmgvEh8lc/tehxXyC
+          bwIDAQABo1IwUDAdBgNVHQ4EFgQUnb1fl9UZ5vmD04BC+YLFuaR9hPowDwYDVR0T
+          AQH/BAUwAwEB/zAeBgNVHREEFzAVghNjYXB0dXJlLmV4YW1wbGUuY29tMA0GCSqG
+          SIb3DQEBCwUAA4IBAQABCsXaSRGTJFUgEW9TofJo0aJtqGCW/s6GpSYFEEue5bBO
+          +I93dHuedGxexstjcFYNP54+U4pwz4PgdYbt1G6+ynNHKOYl0XOY1KB12vvPFLny
+          V4leKMFfS/DbJzSjKeZtpl+MFZDxh4eWUh2s+Go6xvzHxmzMSrx12qtwIQpKWFvz
+          qwJhjRrhsXOyJGAafo+bwESAULaFR6q/A5t712RaygwGZahOXcME5CNNodxOarLj
+          3XskosgZfy4VnsNzfi3w4qxUCfL+UgTrdtK1rZNvzOCKbN5UliJD1SnT6mrqtNRV
+          irYhcFU4WN704FnCRgsCFalJzAyFSguO/78NLJoH
+          -----END CERTIFICATE-----
+      private_key:
+        inline_string: |
+          -----BEGIN PRIVATE KEY-----
+          MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCU8XnwrTQaQq3e
+          RAciJjRxYPp2rk8OdFOLI7AuThDkpCwI/FL/Bp0bpaoLNndhKtmSZanTnUV9qtTf
+          c+uTC1dBeGWXqcHx1k3uiqszPkvLkmdsFeRiDGTrgyMeGd16xZAuOphYfIV0homb
+          Rsp5jqdg1ApB/ATNdaGlIuIrkKPscxTkaJ1v0Cfpw40XitjMmI9G59dDSvPpTQQ2
+          6aKoG7amGUUVf0lgr55QeS9e6HzeMmNf+1eJubs+hBcg4OeDEhSra7H4c1OcqLQ2
+          +IVz3h7M+OklBbg+89oyh1/WvxbmDqHn8ztgqSqQE7yhulF5/Z+Mpo6aC8SHyVz+
+          16HFfIJvAgMBAAECggEABqeynxlHlh4Sswia2M91kZpu70haUX/LZpDFKadqr7qA
+          MWMjEPZhpQJgY/AkaAvWyNGWWvhiEBij9M/hlBymkU8aYSsjPGQfTN1z964OOiDJ
+          3iP+pDFF2sLWPOjaUaP9antiaJ84G+LAU7/LsRR/YdOHpUKt1eSLb4RhGNBp6qqQ
+          dE0tr5Ss68UOygzv2/7sqmxpxwg+lsx07GevTo35QvMfFTce2Dke6cWIZbpgYDQE
+          llyqOwFvOokGsNmqoJDpL1gMLwBWQGhOTw/jugXX4SKdZbw0bNzeQ+v0WqihWmXk
+          Ns0E+DefTSBGcpBu7GuP7IIT0JP0Cq/RKnsLFcx1QQKBgQDDz44r+cRFFc4BGdha
+          2Q7/lDN4HSn99xa4SjGJKddPPrOhS/PqjcgSv40j/0RkA0Gkm56v4848Cy5c0s7f
+          UsAw58riDiHn3vh1kQpIiHZ/gqtHjn8oxXNJ8Da6y7axjFCtmEvZijTifVvpjaQH
+          o2+P2iewhhQVL09L6Y3idrS4LwKBgQDCueUQ7KKEr98eLeQLXtvqMHlwgtBxNi3J
+          CLFWbvKg6yL5Opt0b01E0729VqHoC/xQrV8mdoPED2DLclDAXfJsLyES8q1Pr1WS
+          ri27nzC6yVH7ywF6WSqFW4p7bqHC3rWr1VBahGua8YvsmI/dr5HhvSMbBodcXaCQ
+          s5RXKnwJwQKBgQC0LbvkKUt6SqsqBi84wXz0ntmRkDyAriog4Fyem3q9N7QxGuPS
+          lC5jWhG06wJyiTCRGIW30gaG5778uRqVEt844UGmK1z1sQ2tmQ3+Wlu3z3RuPugx
+          iycgBUNHNYbh73yZkIdTIMKzGqlFywkB4lkY5KQa4fV+3O65qqrdlV+MDwKBgEFU
+          5Um8Wvpxl0Yk13IJLXdxNA1Plmelac8dH4KETts2iNFdnHKANUh2Uh6IRmH4Q3s9
+          78KT2Lma/zrC69zeqEsrtMkKqqMljGxeC/H7AvpoOR1liuVlrSJ5CAlJoPQkjIdO
+          VltIOmIN0Ihc10flc+hs8K5MjnWq5AgoeAiWtG8BAoGAAlQ0tLVC6HuWa3NkA/1n
+          SEXs4ItmSav/rDx7u4mJ1j7q0w7hwTrt2V80F3FRIO8goeVqzYPNg3+JkTA99BZP
+          vyUsGomWASRH2PMLY9gsnNKTYHDMzsjf79jemy5vRJoVDDW22Tc6qMpXgDRMG8G0
+          7pjbDAcMCMOhjieHbfqziG0=
+          -----END PRIVATE KEY-----
+  clusters:
+  - name: api
+    type: STATIC
+    connect_timeout: 1s
+    load_assignment:
+      cluster_name: api
+      endpoints:
+      - lb_endpoints:
+        - endpoint: {address: {socket_address: {address: 10.0.0.1, port_value: 8080}}}
+  listeners:
+  - name: tls_listener
+    address: {socket_address: {address: 127.0.0.1, port_value: 10443}}
+    filter_chains:
+    - transport_socket:
+        name: envoy.transport_sockets.tls
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+          common_tls_context:
+            tls_certificate_sds_secret_configs:
+            - name: server-cert
+              sds_config:
+                resource_api_version: V3
+                path_config_source: {path: /etc/envoy/sds.yaml}
+      filters:
+      - name: envoy.filters.network.tcp_proxy
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy
+          stat_prefix: tls_listener
+          cluster: api
