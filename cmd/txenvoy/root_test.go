@@ -24,13 +24,18 @@ func TestVersion(t *testing.T) {
 }
 
 func TestInvalidFlagsFailBeforeRun(t *testing.T) {
-	for _, args := range [][]string{
-		{"--refresh", "100ms"},
-		{"--timeout", "0s"},
-		{"--admin", "nope"},
-	} {
-		if _, err := execRoot(args...); err == nil {
-			t.Fatalf("args %v: expected validation error", args)
+	tests := []struct {
+		args    []string
+		wantErr string
+	}{
+		{[]string{"--refresh", "100ms"}, "--refresh"},
+		{[]string{"--timeout", "0s"}, "--timeout"},
+		{[]string{"--admin", "nope"}, "--admin"},
+	}
+	for _, tt := range tests {
+		_, err := execRoot(tt.args...)
+		if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+			t.Fatalf("args %v: got %v, want error containing %q", tt.args, err, tt.wantErr)
 		}
 	}
 }
