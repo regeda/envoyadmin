@@ -52,13 +52,20 @@ internal/demo/      fake admin server and fixtures (also used by tests and --dem
 ```go
 type Client interface {
     Clusters(ctx context.Context) (*adminv3.Clusters, error)
-    ConfigDump(ctx context.Context, resource string) (*adminv3.ConfigDump, error)
+    ClusterConfigs(ctx context.Context) ([]ClusterConfig, error)
     ServerInfo(ctx context.Context) (*adminv3.ServerInfo, error)
+}
+
+type ClusterConfig struct {
+    Name, Type, VersionInfo string
+    LastUpdated             time.Time
+    Static                  bool
+    JSON                    []byte // the cluster's own protojson, as Envoy emitted it
 }
 ```
 
 - The HTTP implementation takes the base URL and a request timeout (from `--timeout`) and applies the timeout to every call through a per-call context.
-- `/clusters?format=json` is decoded as `envoy.admin.v3.Clusters`. `/config_dump?resource=dynamic_active_clusters` is decoded as `envoy.admin.v3.ConfigDump`. Each `Any` is unpacked through types registered by importing go-control-plane. An unknown type URL yields a placeholder for that resource and never fails the whole decode.
+- `/clusters?format=json` is decoded as `envoy.admin.v3.Clusters`. `ClusterConfigs` calls `/config_dump?resource=dynamic_active_clusters` and `/config_dump?resource=static_clusters` and walks the result as raw JSON, so a cluster whose config holds an `Any` type that is not compiled in never fails the fetch. The snapshot renders each cluster's JSON to YAML with `yaml.JSONToYAML`.
 - A port-forward transport can later supply the `http.Client` or implement `Client` itself without UI changes.
 
 ### 3.2 snapshot
@@ -164,7 +171,7 @@ Logo (2 rows, half-block characters, one accent color):
 
 ### 5.6 Endpoints tab (default)
 
-- A `bubbles/table` with columns ADDRESS, FLAGS, WEIGHT, ZONE, RQ_ACTIVE, RQ_ERR, CX_ACTIVE.
+- A hand-rolled table renderer (`bubbles/table` cannot hold styled cells without breaking width math) with columns ADDRESS, FLAGS, WEIGHT, ZONE, RQ_ACTIVE, RQ_ERR, CX_ACTIVE.
 - Flags are colored tags. Healthy hosts show a dim `OK`. Unhealthy hosts sort to the top.
 - A one-line summary above the table gives totals and the number of ejected hosts.
 
@@ -280,7 +287,7 @@ Covers install, `make` targets, the flags table, key bindings, `make run` for a 
 
 ## 11. Dependencies
 
-bubbletea, bubbles, lipgloss, cobra, go-control-plane, `sigs.k8s.io/yaml`, chroma, `sahilm/fuzzy`, and teatest (`charmbracelet/x/exp/teatest`). `go-cmp` or `go-diff` and client-go are deferred with their features.
+bubbletea v1, bubbles, lipgloss, cobra, go-control-plane, `sigs.k8s.io/yaml`, chroma, `sahilm/fuzzy`, and teatest (`charmbracelet/x/exp/teatest`). `go-cmp` or `go-diff` and client-go are deferred with their features.
 
 ## 12. Later (not designed here)
 
