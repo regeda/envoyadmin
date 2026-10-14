@@ -149,3 +149,46 @@ func TestGoldenListenersFailedInline(t *testing.T) {
 	m = send(m, snapshotMsg{snap: s})
 	golden(t, send(m, key("tab")))
 }
+
+func TestGoldenSecretsList(t *testing.T) {
+	m := loaded(t, demo.Degraded(), 120, 30)
+	golden(t, send(send(m, key("tab")), key("tab")))
+}
+
+func TestGoldenSecretOverview(t *testing.T) {
+	m := loaded(t, demo.Degraded(), 120, 30)
+	m = send(send(m, key("tab")), key("tab"))
+	golden(t, send(m, key("enter")))
+}
+
+func TestGoldenSecretsFailedInline(t *testing.T) {
+	m := sized(New(goldenOpts()), 120, 30)
+	s := fetchSnap(t, demo.Degraded())
+	s.Secrets, s.SecretsErr = nil, "secrets unavailable: GET /config_dump: 500 Internal Server Error"
+	m = send(send(send(m, snapshotMsg{snap: s}), key("tab")), key("tab"))
+	golden(t, m)
+}
+
+// The active server-cert row is the one the api-gateway cluster and the
+// 0.0.0.0_8080 listener use; its Overview carries the certificate facts.
+func activeServerCertOverview(t *testing.T) Model {
+	t.Helper()
+	m := send(send(loaded(t, demo.Degraded(), 120, 30), key("tab")), key("tab"))
+	m = typeText(send(m, key("/")), "server-cert")
+	m = send(m, key("enter"))
+	m = send(m, key("down")) // warming v13 first, then active v12
+	return send(m, key("enter"))
+}
+
+func TestGoldenSecretOverviewActiveCert(t *testing.T) {
+	golden(t, activeServerCertOverview(t))
+}
+
+func TestSecretOverviewActiveCertListsUsers(t *testing.T) {
+	v := activeServerCertOverview(t).View()
+	for _, want := range []string{"Used by", "api-gateway", "0.0.0.0_8080"} {
+		if !strings.Contains(v, want) {
+			t.Fatalf("overview of the active server-cert lacks %q:\n%s", want, v)
+		}
+	}
+}

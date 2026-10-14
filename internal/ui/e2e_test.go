@@ -96,7 +96,7 @@ func TestEndToEndListenersTabAndIsolatedFailure(t *testing.T) {
 	})
 	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(120, 30))
 
-	waitFor(t, tm, "Clusters (6)", "Listeners (7)")
+	waitFor(t, tm, "Clusters (6)", "Listeners (7)", "Secrets (!)")
 	tm.Send(key("tab"))
 	waitFor(t, tm, "virtualInbound", "0.0.0.0:15006")
 
@@ -116,5 +116,47 @@ func TestEndToEndListenersTabAndIsolatedFailure(t *testing.T) {
 	final := tm.FinalModel(t, teatest.WithFinalTimeout(2*time.Second)).(Model)
 	if final.bannerVisible() || final.err != nil {
 		t.Fatalf("a listener failure must never raise the banner (err=%v)", final.err)
+	}
+}
+
+// A secrets failure is isolated: no banner, the other tabs keep working.
+func TestEndToEndSecretsTabAndIsolatedFailure(t *testing.T) {
+	fake := demo.NewServer(demo.Degraded())
+	srv := httptest.NewServer(fake)
+	defer srv.Close()
+
+	cfg := config.Config{Admin: srv.URL, Refresh: 100 * time.Millisecond, Timeout: 200 * time.Millisecond}
+	client, err := admin.NewHTTP(cfg.Admin, cfg.Timeout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	m := New(Options{
+		Ctx: ctx, Config: cfg,
+		Fetch: func(ctx context.Context) (snapshot.Snapshot, error) { return snapshot.Fetch(ctx, client) },
+	})
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(120, 30))
+
+	// the degraded demo has a warming and an expired secret, so the label warns
+	waitFor(t, tm, "Clusters (6)", "Secrets (!)")
+	tm.Send(key("tab")) // Listeners
+	tm.Send(key("tab")) // Secrets
+	waitFor(t, tm, "server-cert", "rotating-cert", "bootstrap-cert")
+
+	fake.Inject(demo.Fault{Status: 500, Match: "secrets"})
+	waitFor(t, tm, "secrets unavailable") // the label stays Secrets (!), so the diff stream does not repeat it
+
+	fake.Inject(demo.Fault{})
+	// "secrets unavailable" is only replaced by the list after a successful fetch
+	waitFor(t, tm, "server-cert", "bootstrap-cert")
+
+	tm.Send(key("q"))
+	final := tm.FinalModel(t, teatest.WithFinalTimeout(2*time.Second)).(Model)
+	if final.bannerVisible() || final.err != nil {
+		t.Fatalf("a secrets failure must never raise the banner (err=%v)", final.err)
+	}
+	if strings.Contains(final.View(), "disconnected") {
+		t.Fatalf("a secrets failure must not show a disconnected state:\n%s", final.View())
 	}
 }
