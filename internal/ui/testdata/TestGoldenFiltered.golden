@@ -1,7 +1,7 @@
 █▀▀ █▄ █ █ █ █▀█ █ █ ▄▀█ █▀▄ █▀▄▀█ █ █▄ █                                                ● connected  http://envoy:15000
 ██▄ █ ▀█ ▀▄▀ █▄█  █  █▀█ █▄▀ █ ▀ █ █ █ ▀█                                                  Envoy 1.31.0 · updated 2s ago
 
- [Clusters (40)]  Listeners (3)   Secrets (!) 
+ [Clusters (40)]  Listeners (3)   Secrets (0) 
 / svc-01                            │  svc-014  ·  Endpoints | Config                                                   
 >● svc-014      EDS              1/2│2 hosts · 1 healthy · 0 ejected                                                    
  ● svc-010      EDS              2/2│Version       7                                                                    

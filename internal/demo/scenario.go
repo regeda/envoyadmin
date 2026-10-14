@@ -28,6 +28,7 @@ type Cluster struct {
 	Static  bool
 	Version string // dynamic clusters only
 	Hosts   []Host
+	Secrets []string // names of secrets referenced through SDS
 }
 
 // Chain is one filter chain of a Listener.
@@ -51,6 +52,22 @@ type Listener struct {
 	Error      string // error details when State == "error"
 	Chains     []Chain
 	Default    *Chain
+	Secrets    []string // names of secrets referenced through SDS by the first chain
+}
+
+// DemoCert describes the certificate inside a demo secret. DaysLeft is
+// relative to Scenario.Updated and negative means already expired.
+type DemoCert struct {
+	Serial   int64
+	SANs     []string
+	DaysLeft int
+}
+
+// Secret is one entry of Envoy's secrets dump. State is "active", "warming" or
+// "static".
+type Secret struct {
+	Name, Version, Kind, State string
+	Cert                       *DemoCert
 }
 
 type Scenario struct {
@@ -58,6 +75,7 @@ type Scenario struct {
 	Updated   time.Time
 	Clusters  []Cluster
 	Listeners []Listener
+	Secrets   []Secret
 }
 
 var epoch = time.Date(2026, 10, 14, 10, 0, 0, 0, time.UTC)
@@ -113,6 +131,9 @@ func metric(name string, v uint64, typ string) map[string]any {
 // "static_clusters", "dynamic_listeners" or "static_listeners" in the shape Envoy uses for ?resource=: one configs[]
 // element per cluster, typed ClustersConfigDump.DynamicCluster or .StaticCluster.
 func (s Scenario) ConfigDumpJSON(resource string) ([]byte, bool) {
+	if b, ok := s.SecretsJSON(resource); ok {
+		return b, true
+	}
 	switch resource {
 	case "dynamic_listeners":
 		return mustJSON(map[string]any{"configs": s.listenerElements(false)}), true
@@ -134,6 +155,9 @@ func (s Scenario) ConfigDumpJSON(resource string) ([]byte, bool) {
 		}
 		if c.Type != "" {
 			cl["type"] = c.Type
+		}
+		if len(c.Secrets) > 0 {
+			cl["transport_socket"] = sdsContext(c.Secrets)
 		}
 		e := map[string]any{
 			"@type":        "type.googleapis.com/envoy.admin.v3.ClustersConfigDump.DynamicCluster",
@@ -213,6 +237,9 @@ func (l Listener) json() map[string]any {
 	chains := []any{}
 	for _, c := range l.Chains {
 		chains = append(chains, c.json())
+	}
+	if len(l.Secrets) > 0 && len(chains) > 0 {
+		chains[0].(map[string]any)["transport_socket"] = sdsContext(l.Secrets)
 	}
 	out := map[string]any{
 		"@type":         "type.googleapis.com/envoy.config.listener.v3.Listener",
@@ -327,7 +354,7 @@ func routerHTTP() []string { return []string{"envoy.filters.http.router"} }
 func healthyListeners() []Listener {
 	return []Listener{
 		{Name: "0.0.0.0_8080", Address: "0.0.0.0:8080", Version: "42", State: "active",
-			Chains: []Chain{{Filters: hcm, HTTPFilters: routerHTTP()}}},
+			Chains: []Chain{{Filters: hcm, HTTPFilters: routerHTTP()}}, Secrets: []string{"server-cert"}},
 		{Name: "0.0.0.0_9200", Address: "0.0.0.0:9200", Version: "42", State: "active",
 			Chains: []Chain{{Filters: tcp}}},
 		{Name: "admin-static", Address: "127.0.0.1:15000", Static: true, Chains: []Chain{{Filters: tcp}}},
@@ -343,7 +370,8 @@ func degradedListeners() []Listener {
 				{Name: "by-sni", Match: map[string]any{"server_names": []string{"a.example.com", "b.example.com"}}, Filters: hcm, HTTPFilters: sidecarHTTP()},
 			},
 			Default: &Chain{Filters: tcp}},
-		{Name: "0.0.0.0_8080", Address: "0.0.0.0:8080", Version: "7", State: "active", Chains: []Chain{{Filters: hcm, HTTPFilters: routerHTTP()}}},
+		{Name: "0.0.0.0_8080", Address: "0.0.0.0:8080", Version: "7", State: "active", Chains: []Chain{{Filters: hcm, HTTPFilters: routerHTTP()}},
+			Secrets: []string{"server-cert"}},
 		{Name: "orders-egress", Address: "10.0.2.1:5432", Version: "8", State: "warming", ServingOld: true, Chains: []Chain{{Filters: tcp}}},
 		{Name: "legacy-9090", Address: "0.0.0.0:9090", Version: "6", State: "draining", Chains: []Chain{{Filters: tcp}}},
 		{Name: "bad-update", Address: "0.0.0.0:9443", Version: "9", State: "error", ServingOld: true,
@@ -359,14 +387,102 @@ func base(clusters ...Cluster) Scenario {
 		Listeners: healthyListeners()}
 }
 
+func demoSecrets() []Secret {
+	return []Secret{
+		{Name: "server-cert", Version: "12", Kind: "tls_certificate", State: "active",
+			Cert: &DemoCert{Serial: 0x0a1b2c, SANs: []string{"api.example.com", "internal.example.com"}, DaysLeft: 62}},
+		// Envoy reports a rotating secret twice under one name: the active
+		// version and the warming one.
+		{Name: "server-cert", Version: "13", Kind: "tls_certificate", State: "warming"},
+		{Name: "mesh-ca", Version: "3", Kind: "validation_context", State: "active",
+			Cert: &DemoCert{Serial: 1, DaysLeft: 900}},
+		{Name: "rotating-cert", Version: "8", Kind: "tls_certificate", State: "warming"},
+		{Name: "bootstrap-cert", Kind: "tls_certificate", State: "static",
+			Cert: &DemoCert{Serial: 0xff00, DaysLeft: -3}},
+	}
+}
+
+func sdsContext(names []string) map[string]any {
+	cfgs := make([]any, 0, len(names))
+	for _, n := range names {
+		cfgs = append(cfgs, map[string]any{"name": n, "sds_config": map[string]any{"path_config_source": map[string]any{"path": "/etc/envoy/sds.yaml"}}})
+	}
+	return map[string]any{
+		"name": "envoy.transport_sockets.tls",
+		"typed_config": map[string]any{
+			"@type":              "type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext",
+			"common_tls_context": map[string]any{"tls_certificate_sds_secret_configs": cfgs},
+		},
+	}
+}
+
+// SecretsJSON returns the dump for ?resource=dynamic_active_secrets,
+// dynamic_warming_secrets or static_secrets, one configs[] element per secret
+// as Envoy emits it. Like Envoy, it keeps the public certificate and redacts
+// the private key.
+func (s Scenario) SecretsJSON(resource string) ([]byte, bool) {
+	var want, typ string
+	switch resource {
+	case "dynamic_active_secrets":
+		want, typ = "active", "DynamicSecret"
+	case "dynamic_warming_secrets":
+		want, typ = "warming", "DynamicSecret"
+	case "static_secrets":
+		want, typ = "static", "StaticSecret"
+	default:
+		return nil, false
+	}
+	configs := []any{}
+	for _, sec := range s.Secrets {
+		if sec.State != want {
+			continue
+		}
+		body := map[string]any{"name": sec.Name}
+		var pemText string
+		if sec.Cert != nil {
+			pemText = certPEM(sec.Cert.Serial, sec.Cert.SANs, s.Updated.AddDate(0, 0, sec.Cert.DaysLeft))
+		}
+		switch sec.Kind {
+		case "validation_context":
+			ca := map[string]any{}
+			if pemText != "" {
+				ca["inline_string"] = pemText
+			}
+			body["validation_context"] = map[string]any{"trusted_ca": ca}
+		default:
+			chain := map[string]any{}
+			if pemText != "" {
+				chain["inline_string"] = pemText
+			}
+			body["tls_certificate"] = map[string]any{
+				"certificate_chain": chain,
+				"private_key":       map[string]any{"inline_string": "[redacted]"},
+			}
+		}
+		e := map[string]any{
+			"@type":        "type.googleapis.com/envoy.admin.v3.SecretsConfigDump." + typ,
+			"name":         sec.Name,
+			"last_updated": s.Updated.Format(time.RFC3339Nano),
+			"secret":       body,
+		}
+		if want != "static" {
+			e["version_info"] = sec.Version
+		}
+		configs = append(configs, e)
+	}
+	return mustJSON(map[string]any{"configs": configs}), true
+}
+
 func Healthy() Scenario {
-	return base(
+	sc := base(
 		Cluster{Name: "api-gateway", Type: "EDS", Version: "42", Hosts: []Host{
 			ok("10.0.1.11:8080", "us-east-1a", 1, 2, 5), ok("10.0.1.12:8080", "us-east-1b", 1, 1, 4),
 		}},
 		Cluster{Name: "search", Type: "EDS", Version: "42", Hosts: []Host{ok("10.0.3.31:9200", "us-east-1a", 1, 0, 1)}},
 		Cluster{Name: "xds_cluster", Static: true, Hosts: []Host{ok("127.0.0.1:18000", "", 1, 0, 1)}},
 	)
+	sc.Secrets = demoSecrets()
+	return sc
 }
 
 // Degraded mixes failed health checks, outlier ejection, an empty cluster, a
@@ -377,11 +493,11 @@ func Degraded() Scenario {
 		{Address: "10.0.1.12:8080", Zone: "us-east-1b", Weight: 1, RqActive: 0, RqError: 17, CxActive: 0,
 			Health: map[string]any{"failed_active_health_check": true, "eds_health_status": "UNHEALTHY"}},
 		ok("10.0.1.13:8080", "us-east-1c", 1, 1, 3),
-	}}
+	}, Secrets: []string{"server-cert", "mesh-ca"}}
 	db := Cluster{Name: "orders-db", Type: "STRICT_DNS", Version: "41", Hosts: []Host{
 		{Address: "10.0.2.21:5432", Zone: "us-east-1a", Weight: 1, RqError: 4, Health: map[string]any{"failed_outlier_check": true}},
 		{Address: "10.0.2.22:5432", Zone: "us-east-1b", Weight: 1, RqError: 9, Health: map[string]any{"failed_outlier_check": true}},
-	}}
+	}, Secrets: []string{"mesh-ca", "missing-cert"}}
 	sc := base(
 		api, db,
 		Cluster{Name: "cache-redis", Type: "EDS", Version: "40"},
@@ -392,6 +508,7 @@ func Degraded() Scenario {
 		Cluster{Name: "local-agent", Static: true, Hosts: []Host{{Address: "unix:/var/run/agent.sock", NoStats: true}}},
 	)
 	sc.Listeners = degradedListeners()
+	sc.Secrets = demoSecrets()
 	return sc
 }
 

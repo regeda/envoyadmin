@@ -85,7 +85,6 @@ func TestSecretsFailureDegradesInline(t *testing.T) {
 }
 
 func TestFetchSecretsFromDemo(t *testing.T) {
-	t.Skip("needs demo secrets, Task 8")
 	srv := httptest.NewServer(demo.NewServer(demo.Degraded()))
 	t.Cleanup(srv.Close)
 	c, err := admin.NewHTTP(srv.URL, time.Second)
@@ -107,6 +106,42 @@ func TestFetchSecretsFromDemo(t *testing.T) {
 	}
 	if withCert == 0 {
 		t.Fatal("demo certificates must show up as certificate facts")
+	}
+	var servers int
+	for _, sec := range s.Secrets {
+		switch sec.Name {
+		case "server-cert":
+			servers++
+			var cl, ls bool
+			for _, u := range sec.UsedBy {
+				cl = cl || u == (Ref{"cluster", "api-gateway"})
+				ls = ls || u == (Ref{"listener", "0.0.0.0_8080"})
+			}
+			if !cl || !ls {
+				t.Errorf("server-cert %s UsedBy = %v", sec.VersionInfo, sec.UsedBy)
+			}
+			if sec.State == SecretActive && (sec.Cert == nil || sec.Cert.Serial != "a1b2c") {
+				t.Errorf("server-cert cert = %+v", sec.Cert)
+			}
+		case "bootstrap-cert":
+			if sec.Cert == nil || !sec.Cert.Expired(s.FetchedAt) {
+				t.Errorf("bootstrap-cert must be expired: %+v", sec.Cert)
+			}
+		}
+	}
+	if servers != 2 {
+		t.Errorf("want the active and warming server-cert, got %d", servers)
+	}
+	var found bool
+	for _, c := range s.Clusters {
+		if c.Name == "orders-db" {
+			for _, u := range c.Secrets {
+				found = found || u == (SecretUse{"missing-cert", false})
+			}
+		}
+	}
+	if !found {
+		t.Error("orders-db must reference the unloaded missing-cert")
 	}
 }
 

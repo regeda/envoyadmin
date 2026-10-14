@@ -338,6 +338,7 @@ func TestEndpointsDropPriorityWeightBeforeZone(t *testing.T) {
 			c = cc
 		}
 	}
+	c.Secrets = nil // this test is about the host table columns, not the secrets block
 	// 120x30: 77-cell pane; WEIGHT dropped, ZONE kept, flag whole.
 	lines := endpointLines(c, 77, 7, 0)
 	if got := strings.Join(strings.Fields(lines[2]), " "); got != "ADDRESS FLAGS ZONE RQ_ACTIVE RQ_ERR CX_ACTIVE" {

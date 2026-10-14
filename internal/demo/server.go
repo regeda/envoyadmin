@@ -48,6 +48,7 @@ func (s *Server) Update(fn func(*Scenario)) {
 				c.Hosts[j].Health = m
 			}
 		}
+		c.Secrets = append([]string(nil), c.Secrets...)
 		cp.Clusters[i] = c
 	}
 	cp.Listeners = make([]Listener, len(s.sc.Listeners))
@@ -60,7 +61,17 @@ func (s *Server) Update(fn func(*Scenario)) {
 			d := l.Default.clone()
 			l.Default = &d
 		}
+		l.Secrets = append([]string(nil), l.Secrets...)
 		cp.Listeners[i] = l
+	}
+	cp.Secrets = make([]Secret, len(s.sc.Secrets))
+	for i, sec := range s.sc.Secrets {
+		if sec.Cert != nil {
+			c := *sec.Cert
+			c.SANs = append([]string(nil), c.SANs...)
+			sec.Cert = &c
+		}
+		cp.Secrets[i] = sec
 	}
 	fn(&cp)
 	s.sc = cp

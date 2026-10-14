@@ -2,7 +2,9 @@ package demo
 
 import (
 	"context"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -391,5 +393,47 @@ func TestUpdateDeepCopiesListeners(t *testing.T) {
 	defer srv.Close()
 	if _, body := get(t, srv.URL+"/config_dump?resource=dynamic_listeners"); !strings.Contains(body, "mutated") {
 		t.Fatal("update not visible")
+	}
+}
+
+func TestServerServesSecrets(t *testing.T) {
+	srv := httptest.NewServer(NewServer(Degraded()))
+	defer srv.Close()
+	fetch := func(path string) string {
+		code, b := get(t, srv.URL+path)
+		if code != 200 {
+			t.Fatalf("%s: %d", path, code)
+		}
+		return b
+	}
+	active := fetch("/config_dump?resource=dynamic_active_secrets")
+	if !strings.Contains(active, "SecretsConfigDump.DynamicSecret") || !strings.Contains(active, "server-cert") ||
+		!strings.Contains(active, "BEGIN CERTIFICATE") {
+		t.Fatalf("active: %s", active)
+	}
+	if strings.Contains(active, "PRIVATE KEY") || !strings.Contains(active, "[redacted]") {
+		t.Fatal("like Envoy, the demo redacts private keys and never emits one")
+	}
+	warming := fetch("/config_dump?resource=dynamic_warming_secrets")
+	if !strings.Contains(warming, "rotating-cert") || !strings.Contains(warming, "server-cert") {
+		t.Fatalf("warming: %s", warming)
+	}
+	if b := fetch("/config_dump?resource=static_secrets"); !strings.Contains(b, "SecretsConfigDump.StaticSecret") {
+		t.Fatalf("static: %s", b)
+	}
+	if b := fetch("/config_dump?resource=dynamic_active_clusters"); !strings.Contains(b, "tls_certificate_sds_secret_configs") {
+		t.Fatalf("a demo cluster must reference a secret: %s", b)
+	}
+}
+
+func TestCertPEMRoundTrips(t *testing.T) {
+	notAfter := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
+	block, _ := pem.Decode([]byte(certPEM(0x0a1b2c, []string{"api.example.com"}, notAfter)))
+	if block == nil || block.Type != "CERTIFICATE" {
+		t.Fatalf("block: %+v", block)
+	}
+	c, err := x509.ParseCertificate(block.Bytes)
+	if err != nil || c.SerialNumber.Int64() != 0x0a1b2c || c.DNSNames[0] != "api.example.com" || !c.NotAfter.Equal(notAfter) {
+		t.Fatalf("%v %+v", err, c)
 	}
 }

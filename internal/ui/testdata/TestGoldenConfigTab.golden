@@ -4,24 +4,24 @@
  [Clusters (6)]  Listeners (7)   Secrets (!) 
 / to filter                         │  orders-db  ·  Endpoints | Config                                                 
 >● orders-db    STRICT_DNS       0/2│version_info: 41   last_updated: 2026-10-14 10:00:00Z                              
- ● api-gateway  EDS              2/3│1│ '@type': type.googleapis.com/envoy.config.cluster.v3.Cluster                    
- ● cache-redis  EDS              0/0│2│ connect_timeout: 5s                                                             
- ● local-agent  STATIC           1/1│3│ name: orders-db                                                                 
- ● search       EDS              2/2│4│ type: STRICT_DNS                                                                
- ● xds_cluster  STATIC           1/1│                                                                                   
-                                    │                                                                                   
-                                    │                                                                                   
-                                    │                                                                                   
-                                    │                                                                                   
-                                    │                                                                                   
-                                    │                                                                                   
-                                    │                                                                                   
-                                    │                                                                                   
-                                    │                                                                                   
-                                    │                                                                                   
-                                    │                                                                                   
-                                    │                                                                                   
-                                    │                                                                                   
+ ● api-gateway  EDS              2/3│ 1│ '@type': type.googleapis.com/envoy.config.cluster.v3.Cluster                   
+ ● cache-redis  EDS              0/0│ 2│ connect_timeout: 5s                                                            
+ ● local-agent  STATIC           1/1│ 3│ name: orders-db                                                                
+ ● search       EDS              2/2│ 4│ transport_socket:                                                              
+ ● xds_cluster  STATIC           1/1│ 5│   name: envoy.transport_sockets.tls                                            
+                                    │ 6│   typed_config:                                                                
+                                    │ 7│     '@type': type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.Upst
+                                    │ 8│     common_tls_context:                                                        
+                                    │ 9│       tls_certificate_sds_secret_configs:                                      
+                                    │10│       - name: mesh-ca                                                          
+                                    │11│         sds_config:                                                            
+                                    │12│           path_config_source:                                                  
+                                    │13│             path: /etc/envoy/sds.yaml                                          
+                                    │14│       - name: missing-cert                                                     
+                                    │15│         sds_config:                                                            
+                                    │16│           path_config_source:                                                  
+                                    │17│             path: /etc/envoy/sds.yaml                                          
+                                    │18│ type: STRICT_DNS                                                               
                                     │                                                                                   
                                     │                                                                                   
                                     │                                                                                   
