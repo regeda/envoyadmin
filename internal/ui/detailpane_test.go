@@ -9,6 +9,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
 
 	"github.com/regeda/txenvoy/internal/snapshot"
 )
@@ -296,7 +297,7 @@ func TestLongLineIsOneRowClippedAtBoundary(t *testing.T) {
 	if w := lipgloss.Width(rows[2]); w != 30 {
 		t.Fatalf("clipped row width %d, want 30", w)
 	}
-	gutter := lipgloss.Width(yamlGutter(1, c.Config.YAML)) // "<n> │ " in front of every line
+	gutter := lipgloss.Width(yamlGutter(1, c.Config.YAML)) // "<n>│ " in front of every line
 	if n := strings.Count(rows[2], "v"); n != 30-gutter-len("key: ") {
 		t.Fatalf("v count %d: tail of long value leaked (gutter %d)", n, gutter)
 	}
@@ -412,7 +413,7 @@ func TestDisappearThenReappearResetsScroll(t *testing.T) {
 // yamlGutter is the plain-text gutter numberLines puts before line n of yaml.
 func yamlGutter(n int, yaml string) string {
 	total := len(strings.Split(strings.TrimRight(yaml, "\n"), "\n"))
-	return fmt.Sprintf("%*d │ ", len(strconv.Itoa(total)), n)
+	return fmt.Sprintf("%*d│ ", len(strconv.Itoa(total)), n)
 }
 
 func numberedConfig(t *testing.T, yaml string, h int) (detailPane, []string) {
@@ -430,7 +431,7 @@ func TestConfigLinesAreNumbered(t *testing.T) {
 	yaml := "name: api\ntype: EDS\nconnect_timeout: 5s\n"
 	_, rows := numberedConfig(t, yaml, 8)
 	// row 0 tab line, row 1 header, rows 2.. the YAML
-	want := []string{"1 │ name: api", "2 │ type: EDS", "3 │ connect_timeout: 5s"}
+	want := []string{"1│ name: api", "2│ type: EDS", "3│ connect_timeout: 5s"}
 	for i, w := range want {
 		if got := strings.TrimRight(rows[2+i], " "); got != w {
 			t.Fatalf("row %d = %q, want %q", 2+i, got, w)
@@ -447,7 +448,7 @@ func TestConfigLineNumbersAreRightAlignedAndStartWithOneAfterScrolling(t *testin
 		fmt.Fprintf(&b, "k%d: v\n", i)
 	}
 	d, rows := numberedConfig(t, b.String(), 12)
-	if got := strings.TrimRight(rows[2], " "); got != "  1 │ k1: v" {
+	if got := strings.TrimRight(rows[2], " "); got != "  1│ k1: v" {
 		t.Fatalf("first row %q: numbers must be right-aligned to the widest (3 digits)", got)
 	}
 	d.HandleKey(key("pgdown"))
@@ -457,14 +458,14 @@ func TestConfigLineNumbersAreRightAlignedAndStartWithOneAfterScrolling(t *testin
 	if n == 0 {
 		t.Fatal("pgdown should have scrolled")
 	}
-	if want := fmt.Sprintf("%3d │ k%d: v", n+1, n+1); first != want {
+	if want := fmt.Sprintf("%3d│ k%d: v", n+1, n+1); first != want {
 		t.Fatalf("after scrolling the first row is %q, want %q (numbers follow the YAML line)", first, want)
 	}
 	for i := 0; i < 20; i++ {
 		d.HandleKey(key("pgdown"))
 	}
 	rows = rowsOf(d.View())
-	if !strings.Contains(strings.Join(rows, "\n"), "120 │ k120: v") {
+	if !strings.Contains(strings.Join(rows, "\n"), "120│ k120: v") {
 		t.Fatalf("the last line must carry number 120:\n%s", strings.Join(rows, "\n"))
 	}
 }
@@ -500,7 +501,28 @@ func TestLineNumbersDoNotTriggerReHighlighting(t *testing.T) {
 	if d.highlights != before {
 		t.Fatalf("resize/refresh re-ran chroma (%d -> %d)", before, d.highlights)
 	}
-	if !strings.Contains(ansi.Strip(d.View()), "1 │ ") {
+	if !strings.Contains(ansi.Strip(d.View()), "1│ ") {
 		t.Fatalf("numbers must also be present when colour is on:\n%s", ansi.Strip(d.View()))
+	}
+}
+
+func TestLineNumbersAreDarkerThanDimText(t *testing.T) {
+	prev := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(prev) })
+
+	row := strings.Split(numberLines("name: api"), "\n")[0]
+	if !strings.Contains(row, "38;5;240") {
+		t.Fatalf("line numbers must use grey 240: %q", row)
+	}
+	if strings.Contains(row, "38;5;8m") {
+		t.Fatalf("line numbers must not use the lighter dim grey: %q", row)
+	}
+	if got := ansi.Strip(row); got != "1│ name: api" {
+		t.Fatalf("no space before the bar, one after it: %q", got)
+	}
+	// the number and its bar are styled together; the YAML text itself is untouched
+	if idx := strings.Index(row, "name: api"); idx < 0 || strings.Contains(row[idx:], "\x1b[") {
+		t.Fatalf("the YAML text must not inherit the gutter colour: %q", row)
 	}
 }

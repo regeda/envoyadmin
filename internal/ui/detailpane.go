@@ -83,8 +83,9 @@ func (d *detailPane) syncConfig() {
 	d.applyContent()
 }
 
-// numberLines prefixes every line with a dim, right-aligned line number and a
-// gutter bar. The numbers follow the YAML lines (one rendered row per line),
+// numberLines prefixes every line with a dark-grey, right-aligned line number
+// and a gutter bar (no space before the bar; the column is as wide as the
+// largest number). The numbers follow the YAML lines (one rendered row per line),
 // so they stay correct while the viewport scrolls. Empty content gets none.
 func numberLines(s string) string {
 	if s == "" {
@@ -93,7 +94,7 @@ func numberLines(s string) string {
 	lines := strings.Split(s, "\n")
 	digits := len(strconv.Itoa(len(lines)))
 	for i, l := range lines {
-		lines[i] = dimStyle.Render(fmt.Sprintf("%*d │", digits, i+1)) + " " + l
+		lines[i] = lineNumStyle.Render(fmt.Sprintf("%*d│", digits, i+1)) + " " + l
 	}
 	return strings.Join(lines, "\n")
 }

@@ -12,7 +12,9 @@ var (
 	warnStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
 	badStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
 	boldStyle = lipgloss.NewStyle().Bold(true)
-	logoStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Bold(true)
+	// lineNumStyle is a notch darker than dimStyle so the config gutter recedes behind the YAML.
+	lineNumStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	logoStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Bold(true)
 )
 
 func markerStyle(h snapshot.Health) lipgloss.Style {

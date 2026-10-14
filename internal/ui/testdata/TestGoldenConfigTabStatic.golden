@@ -4,9 +4,9 @@
   Clusters (6) 
 / to filter                         │  xds_cluster  ·  Endpoints | Config                                               
  ● orders-db    STRICT_DNS       0/2│static (no xDS version)   last_updated: 2026-10-14 10:00:00Z                       
- ● api-gateway  EDS              2/3│1 │ '@type': type.googleapis.com/envoy.config.cluster.v3.Cluster                   
- ● cache-redis  EDS              0/0│2 │ connect_timeout: 5s                                                            
- ● local-agent  STATIC           1/1│3 │ name: xds_cluster                                                              
+ ● api-gateway  EDS              2/3│1│ '@type': type.googleapis.com/envoy.config.cluster.v3.Cluster                    
+ ● cache-redis  EDS              0/0│2│ connect_timeout: 5s                                                             
+ ● local-agent  STATIC           1/1│3│ name: xds_cluster                                                               
  ● search       EDS              2/2│                                                                                   
 >● xds_cluster  STATIC           1/1│                                                                                   
                                     │                                                                                   
