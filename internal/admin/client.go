@@ -21,6 +21,7 @@ type Client interface {
 	Clusters(ctx context.Context) (*adminv3.Clusters, error)
 	ClusterConfigs(ctx context.Context) ([]ClusterConfig, error)
 	ListenerConfigs(ctx context.Context) ([]ListenerConfig, error)
+	SecretConfigs(ctx context.Context) ([]SecretConfig, error)
 	ServerInfo(ctx context.Context) (*adminv3.ServerInfo, error)
 }
 
@@ -127,6 +128,29 @@ func (h *HTTP) ListenerConfigs(ctx context.Context) ([]ListenerConfig, error) {
 		cfgs, err := decodeListenerConfigs(body, res == "static_listeners")
 		if err != nil {
 			return nil, fmt.Errorf("GET /config_dump: decode %s: %w", res, err)
+		}
+		all = append(all, cfgs...)
+	}
+	return all, nil
+}
+
+func (h *HTTP) SecretConfigs(ctx context.Context) ([]SecretConfig, error) {
+	var all []SecretConfig
+	for _, r := range []struct {
+		resource string
+		state    SecretState
+	}{
+		{"dynamic_active_secrets", SecretActive},
+		{"dynamic_warming_secrets", SecretWarming},
+		{"static_secrets", SecretStatic},
+	} {
+		body, err := h.get(ctx, "/config_dump", url.Values{"resource": {r.resource}})
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", r.resource, err)
+		}
+		cfgs, err := decodeSecretConfigs(body, r.state)
+		if err != nil {
+			return nil, fmt.Errorf("GET /config_dump: decode %s: %w", r.resource, err)
 		}
 		all = append(all, cfgs...)
 	}
