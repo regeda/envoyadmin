@@ -18,6 +18,10 @@
 4. The demo `Fault` gains a `Match` substring so a test can fail only the listener dump.
 5. The short hint line reads `? help · q quit · tab switch · enter details · / filter …` (not the spec's order): `? help` and `q quit` must survive clipping at 80 columns, as an earlier review required.
 
+## Findings from the real capture (Task 1, applied below)
+
+A rejected LDS update is emitted by Envoy as **two elements** for the same listener: the named element carries `active_state` (the old, still-serving version) next to `error_state` (with `last_update_attempt`), and a second **nameless** element carries only `error_state` (no attempt time). `error_state.failed_configuration` is a bare `Listener` (it has its own `@type`), `details` ends with a newline, and the nameless element's listener name exists only in `failed_configuration.name`. Static elements have no element-level name (it is `listener.name`); `port_value`, `destination_port` and `prefix_len` are JSON numbers; `last_updated` is RFC3339 with milliseconds. Tasks 2, 3 and 5 below reflect this: the demo emits the same pair, the decoder names the nameless element from the failed configuration and merges elements with the same name, and error details are trimmed.
+
 ## Global Constraints
 
 - Module path `github.com/regeda/txenvoy`; bubbletea **v1** (`View() string`, `tea.KeyMsg`); no viper.
@@ -234,11 +238,24 @@ func TestListenerDumpsUsePerElementShape(t *testing.T) {
 		t.Fatal(err)
 	}
 	names := map[string]map[string]any{}
+	nameless := 0
 	for _, c := range d.Configs {
 		if !strings.HasSuffix(c["@type"].(string), "ListenersConfigDump.DynamicListener") {
 			t.Fatalf("element type %v", c["@type"])
 		}
-		names[c["name"].(string)] = c
+		name, ok := c["name"].(string)
+		if !ok {
+			// Envoy's second element for a rejected update: error_state only
+			if _, hasErr := c["error_state"]; !hasErr || len(c) != 2 {
+				t.Fatalf("a nameless element holds only @type and error_state: %v", c)
+			}
+			nameless++
+			continue
+		}
+		names[name] = c
+	}
+	if nameless != 1 {
+		t.Fatalf("one rejected update emits exactly one nameless twin, got %d", nameless)
 	}
 	for _, want := range []string{"virtualInbound", "0.0.0.0_8080", "orders-egress", "legacy-9090", "bad-update"} {
 		if names[want] == nil {
@@ -429,6 +446,7 @@ func (s Scenario) listenerElements(static bool) []any {
 			"@type": "type.googleapis.com/envoy.admin.v3.ListenersConfigDump.DynamicListener",
 			"name":  l.Name,
 		}
+		var twin map[string]any
 		switch l.State {
 		case "warming":
 			e["warming_state"] = s.listenerState(l)
@@ -443,17 +461,28 @@ func (s Scenario) listenerElements(static bool) []any {
 			e["error_state"] = map[string]any{
 				"failed_configuration": l.json(),
 				"last_update_attempt":  s.Updated.Format(time.RFC3339Nano),
-				"details":              l.Error,
+				"details":              l.Error + "\n", // Envoy ends details with a newline
 			}
 			if l.ServingOld {
 				old := l
 				old.Version = "prev"
 				e["active_state"] = s.listenerState(old)
 			}
+			// Envoy also emits a second, nameless element holding only the error.
+			twin = map[string]any{
+				"@type": "type.googleapis.com/envoy.admin.v3.ListenersConfigDump.DynamicListener",
+				"error_state": map[string]any{
+					"failed_configuration": l.json(),
+					"details":              l.Error + "\n",
+				},
+			}
 		default:
 			e["active_state"] = s.listenerState(l)
 		}
 		out = append(out, e)
+		if twin != nil {
+			out = append(out, twin)
+		}
 	}
 	return out
 }
@@ -730,6 +759,73 @@ func TestListenerConfigsSkipBadEntriesAndAcceptEmpty(t *testing.T) {
 	}
 }
 
+func TestRejectedUpdateElementsAreMergedByName(t *testing.T) {
+	// Hand-written copy of the pair Envoy emits (see the real capture test below):
+	// the named element has active_state + error_state, the twin is nameless.
+	body := `{"configs":[
+	 {"@type":"type.googleapis.com/envoy.admin.v3.ListenersConfigDump.DynamicListener","name":"d",
+	  "active_state":{"version_info":"7","listener":{"name":"d"},"last_updated":"2026-10-14T02:48:19.499Z"},
+	  "error_state":{"failed_configuration":{"@type":"type.googleapis.com/envoy.config.listener.v3.Listener","name":"d","bad":1},
+	    "last_update_attempt":"2026-10-14T02:48:40.320Z","details":"boom\n"}},
+	 {"@type":"type.googleapis.com/envoy.admin.v3.ListenersConfigDump.DynamicListener",
+	  "error_state":{"failed_configuration":{"name":"d","bad":1},"details":"boom\n"}}]}`
+	got, err := serveListeners(t, body, `{}`).ListenerConfigs(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("the pair is one listener, got %d: %+v", len(got), got)
+	}
+	d := got[0]
+	if d.Name != "d" || d.Active == nil || d.Active.VersionInfo != "7" || d.Error == nil ||
+		d.Error.LastUpdateAttempt.IsZero() || d.Error.Details != "boom\n" {
+		t.Fatalf("merged listener: %+v", d)
+	}
+	// the nameless twin first: the attempt time from the named element still wins
+	reversed := `{"configs":[` + body[strings.LastIndex(body, `{"@type"`):len(body)-2] + `,` +
+		body[strings.Index(body, `{"@type"`):strings.LastIndex(body, `,
+	 {"@type"`)] + `]}`
+	got, err = serveListeners(t, reversed, `{}`).ListenerConfigs(context.Background())
+	if err != nil || len(got) != 1 || got[0].Active == nil || got[0].Error == nil || got[0].Error.LastUpdateAttempt.IsZero() {
+		t.Fatalf("order must not matter: %v %+v", err, got)
+	}
+}
+
+func TestNamelessErrorOnlyListenerIsNamedFromTheFailedConfiguration(t *testing.T) {
+	body := `{"configs":[{"@type":"type.googleapis.com/envoy.admin.v3.ListenersConfigDump.DynamicListener",
+	  "error_state":{"failed_configuration":{"name":"never-worked"},"details":"nope"}}]}`
+	got, err := serveListeners(t, body, `{}`).ListenerConfigs(context.Background())
+	if err != nil || len(got) != 1 || got[0].Name != "never-worked" || got[0].Error == nil || got[0].Active != nil {
+		t.Fatalf("%v %+v", err, got)
+	}
+	// no name anywhere: skipped, never fatal
+	anon := `{"configs":[{"@type":"type.googleapis.com/envoy.admin.v3.ListenersConfigDump.DynamicListener",
+	  "error_state":{"failed_configuration":{},"details":"nope"}}]}`
+	if got, err := serveListeners(t, anon, `{}`).ListenerConfigs(context.Background()); err != nil || len(got) != 0 {
+		t.Fatalf("an error with no name at all is skipped: %v %+v", err, got)
+	}
+}
+
+func TestRealRejectedUpdateCapture(t *testing.T) {
+	dyn, err := os.ReadFile("testdata/real-listeners-error.json")
+	if err != nil {
+		t.Skip("no real error capture committed")
+	}
+	got, derr := serveListeners(t, string(dyn), `{}`).ListenerConfigs(context.Background())
+	if derr != nil {
+		t.Fatal(derr)
+	}
+	if len(got) != 1 {
+		t.Fatalf("Envoy's two elements for one rejected update must merge into one listener, got %d: %+v", len(got), got)
+	}
+	d := got[0]
+	if d.Name != "dynamic_one" || d.Active == nil || d.Active.VersionInfo != "7" || d.Error == nil ||
+		d.Error.LastUpdateAttempt.IsZero() || !strings.Contains(d.Error.Details, "cluster_specifier") ||
+		!strings.Contains(string(d.Error.Listener), "dynamic_one") {
+		t.Fatalf("%+v", d)
+	}
+}
+
 func TestListenerConfigsErrors(t *testing.T) {
 	c := serveListeners(t, `{nope`, `{}`)
 	if _, err := c.ListenerConfigs(context.Background()); err == nil || !strings.Contains(err.Error(), "dynamic_listeners") {
@@ -854,8 +950,18 @@ func state(r *rawState) *ListenerState {
 }
 
 func dynamicListener(d rawDynamic) (ListenerConfig, bool) {
+	name := d.Name
+	if name == "" && d.Error != nil {
+		// A rejected update also yields a nameless element; the listener's name
+		// is then only in the failed configuration.
+		var fc struct {
+			Name string `json:"name"`
+		}
+		_ = json.Unmarshal(d.Error.Failed, &fc)
+		name = fc.Name
+	}
 	lc := ListenerConfig{
-		Name: d.Name, Active: state(d.Active), Warming: state(d.Warming), Draining: state(d.Draining),
+		Name: name, Active: state(d.Active), Warming: state(d.Warming), Draining: state(d.Draining),
 	}
 	if d.Error != nil {
 		lc.Error = &ListenerError{LastUpdateAttempt: parseTime(d.Error.Attempt), Details: d.Error.Details, Listener: d.Error.Failed}
@@ -879,6 +985,27 @@ func staticListener(s rawStatic) (ListenerConfig, bool) {
 	}, true
 }
 
+// mergeListener folds b into a: b only fills what a lacks, except that the error
+// carrying a last_update_attempt wins over one without.
+func mergeListener(a, b ListenerConfig) ListenerConfig {
+	if a.Active == nil {
+		a.Active = b.Active
+	}
+	if a.Warming == nil {
+		a.Warming = b.Warming
+	}
+	if a.Draining == nil {
+		a.Draining = b.Draining
+	}
+	switch {
+	case a.Error == nil:
+		a.Error = b.Error
+	case b.Error != nil && a.Error.LastUpdateAttempt.IsZero() && !b.Error.LastUpdateAttempt.IsZero():
+		a.Error = b.Error
+	}
+	return a
+}
+
 // decodeListenerConfigs walks /config_dump as raw JSON, like decodeClusterConfigs.
 // With ?resource=dynamic_listeners|static_listeners Envoy emits one configs[]
 // element per listener, typed ListenersConfigDump.DynamicListener or
@@ -893,6 +1020,15 @@ func decodeListenerConfigs(body []byte, static bool) ([]ListenerConfig, error) {
 		return nil, err
 	}
 	var out []ListenerConfig
+	idx := map[string]int{}
+	add := func(lc ListenerConfig) { // elements for the same listener are merged
+		if i, ok := idx[lc.Name]; ok {
+			out[i] = mergeListener(out[i], lc)
+			return
+		}
+		idx[lc.Name] = len(out)
+		out = append(out, lc)
+	}
 	for _, raw := range dump.Configs {
 		var obj map[string]json.RawMessage
 		if json.Unmarshal(raw, &obj) != nil {
@@ -909,7 +1045,7 @@ func decodeListenerConfigs(body []byte, static bool) ([]ListenerConfig, error) {
 				continue
 			}
 			if lc, ok := dynamicListener(d); ok {
-				out = append(out, lc)
+				add(lc)
 			}
 		case strings.HasSuffix(typ, typeStaticListener):
 			var s rawStatic
@@ -917,7 +1053,7 @@ func decodeListenerConfigs(body []byte, static bool) ([]ListenerConfig, error) {
 				continue
 			}
 			if lc, ok := staticListener(s); ok {
-				out = append(out, lc)
+				add(lc)
 			}
 		case strings.HasSuffix(typ, typeListenersDump):
 			var ld listenersDump
@@ -927,13 +1063,13 @@ func decodeListenerConfigs(body []byte, static bool) ([]ListenerConfig, error) {
 			if static {
 				for _, s := range ld.Static {
 					if lc, ok := staticListener(s); ok {
-						out = append(out, lc)
+						add(lc)
 					}
 				}
 			} else {
 				for _, d := range ld.Dynamic {
 					if lc, ok := dynamicListener(d); ok {
-						out = append(out, lc)
+						add(lc)
 					}
 				}
 			}
@@ -1404,7 +1540,7 @@ func TestListenerStatePrecedence(t *testing.T) {
 			}
 		})
 	}
-	e := listenerFrom(admin.ListenerConfig{Name: "x", Error: &admin.ListenerError{Details: "nope\nline2",
+	e := listenerFrom(admin.ListenerConfig{Name: "x", Error: &admin.ListenerError{Details: "nope\nline2\n",
 		LastUpdateAttempt: time.Date(2026, 10, 14, 11, 0, 0, 0, time.UTC), Listener: raw(l)}})
 	if e.ErrorDetails != "nope\nline2" || e.LastUpdated.Hour() != 11 {
 		t.Fatalf("error-only listeners use the attempt time: %+v", e)
@@ -1583,6 +1719,47 @@ func TestEmptyListenerDumps(t *testing.T) {
 	}
 }
 
+func TestRealRejectedUpdateThroughFetch(t *testing.T) {
+	dyn, err := os.ReadFile("../admin/testdata/real-listeners-error.json")
+	if err != nil {
+		t.Skip("no real error capture committed")
+	}
+	clusters, _ := os.ReadFile("../admin/testdata/real-clusters.json")
+	cdyn, _ := os.ReadFile("../admin/testdata/real-config-dynamic.json")
+	cstat, _ := os.ReadFile("../admin/testdata/real-config-static.json")
+	info, _ := os.ReadFile("../admin/testdata/real-server-info.json")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/clusters":
+			_, _ = w.Write(clusters)
+		case r.URL.Path == "/server_info":
+			_, _ = w.Write(info)
+		case r.URL.Query().Get("resource") == "dynamic_listeners":
+			_, _ = w.Write(dyn)
+		case r.URL.Query().Get("resource") == "static_listeners":
+			_, _ = w.Write([]byte(`{}`))
+		case r.URL.Query().Get("resource") == "dynamic_active_clusters":
+			_, _ = w.Write(cdyn)
+		default:
+			_, _ = w.Write(cstat)
+		}
+	}))
+	defer srv.Close()
+	c, _ := admin.NewHTTP(srv.URL, time.Second)
+	s, err := Fetch(context.Background(), c)
+	if err != nil || len(s.Listeners) != 1 {
+		t.Fatalf("%v listeners=%d: Envoy's two elements are one listener", err, len(s.Listeners))
+	}
+	l := s.Listeners[0]
+	if l.Name != "dynamic_one" || l.State != ListenerError || !l.ServingOld || l.VersionInfo != "7" ||
+		!strings.Contains(l.ErrorDetails, "cluster_specifier") || strings.HasSuffix(l.ErrorDetails, "\n") {
+		t.Fatalf("%+v", l)
+	}
+	if text, _ := l.Config.Render(); !strings.Contains(text, "name: dynamic_one") {
+		t.Fatalf("the Config tab shows the serving (old) listener:\n%s", text)
+	}
+}
+
 func TestRealListenerCapturesThroughFetch(t *testing.T) {
 	dyn, err1 := os.ReadFile("../admin/testdata/real-listeners-dynamic.json")
 	stat, err2 := os.ReadFile("../admin/testdata/real-listeners-static.json")
@@ -1725,7 +1902,7 @@ func listenerFrom(lc admin.ListenerConfig) Listener {
 	switch {
 	case lc.Error != nil:
 		l.State = ListenerError
-		l.ErrorDetails = lc.Error.Details
+		l.ErrorDetails = strings.TrimSpace(lc.Error.Details) // Envoy ends it with a newline
 		l.ServingOld = lc.Active != nil
 	case lc.Draining != nil:
 		l.State = ListenerDraining
