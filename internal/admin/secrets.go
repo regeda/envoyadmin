@@ -61,6 +61,9 @@ func secretKind(m map[string]json.RawMessage) string {
 	return kinds[0]
 }
 
+// secretConfig builds a SecretConfig from a rawSecret. The name field is required
+// at the top level; we do not fall back to secret.name. Elements without a top-level
+// name are deliberately skipped.
 func secretConfig(r rawSecret, state SecretState) (SecretConfig, bool) {
 	if r.Name == "" {
 		return SecretConfig{}, false

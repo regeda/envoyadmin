@@ -106,7 +106,24 @@ func TestSecretConfigsAcceptsWrappedDump(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(got) != 3 {
-		t.Fatalf("each resource must pick only its own list, got %+v", got)
+		t.Fatalf("want exactly 3, got %+v", got)
+	}
+	type key struct {
+		name  string
+		state SecretState
+	}
+	by := map[key]SecretConfig{}
+	for _, sc := range got {
+		by[key{sc.Name, sc.State}] = sc
+	}
+	if _, ok := by[key{"s", SecretStatic}]; !ok {
+		t.Fatalf("each resource must pick only its own list, missing static s: %+v", got)
+	}
+	if _, ok := by[key{"a", SecretActive}]; !ok {
+		t.Fatalf("each resource must pick only its own list, missing active a: %+v", got)
+	}
+	if _, ok := by[key{"w", SecretWarming}]; !ok {
+		t.Fatalf("each resource must pick only its own list, missing warming w: %+v", got)
 	}
 }
 
