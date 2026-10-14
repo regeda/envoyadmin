@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"bytes"
 	"fmt"
 	"strconv"
 	"strings"
@@ -28,7 +29,13 @@ type detailPane struct {
 	color         bool
 	focused       bool
 
+	// The Config tab's rendered YAML and the inputs it was rendered from. The
+	// conversion and chroma run only while the Config tab shows, and only when
+	// these inputs change.
 	cfgKey, cfgText, cfgOut string
+	cfgProblem              string
+	cfgYAML, cfgErr         string // explicit overrides and fetch error it was built from
+	cfgJSON                 []byte
 	highlights              int
 }
 
@@ -47,7 +54,12 @@ func (d *detailPane) SetSize(w, h int) {
 	d.applyContent() // re-clip to the new width; never re-runs chroma
 }
 
-func (d *detailPane) SetTab(t tab) { d.tab = t }
+func (d *detailPane) SetTab(t tab) {
+	d.tab = t
+	if t == tabConfig && d.has {
+		d.syncConfig() // render lazily, when the user opens Config
+	}
+}
 
 // SetFocused marks the pane as owning the keyboard; its tab line then starts
 // with a ▌ marker (a blank of the same width otherwise, so nothing shifts).
@@ -56,7 +68,7 @@ func (d *detailPane) SetFocused(f bool) { d.focused = f }
 func (d *detailPane) SetItem(it resourceItem, ok bool) {
 	if !ok {
 		d.has, d.item = false, nil
-		d.cfgKey = "" // a reappearing item is treated as new
+		d.cfgKey, d.cfgJSON = "", nil // a reappearing item is treated as new
 		d.vp.GotoTop()
 		return
 	}
@@ -65,24 +77,37 @@ func (d *detailPane) SetItem(it resourceItem, ok bool) {
 	}
 	d.item, d.has = it, true
 	d.scroll = min(d.scroll, d.item.OverviewMaxScroll(d.width, d.height-1))
-	d.syncConfig()
+	if d.tab == tabConfig {
+		d.syncConfig()
+	}
 }
 
+// syncConfig brings the rendered YAML up to date with the selected item. It
+// does nothing when the key and the config inputs (JSON bytes, explicit YAML,
+// fetch error) are unchanged, so a poll that changed nothing costs a byte compare
+// instead of a JSON-to-YAML conversion and a chroma pass.
 func (d *detailPane) syncConfig() {
-	text, _ := d.item.Config().Render()
+	c := d.item.Config()
 	key := d.item.Key()
-	if d.cfgKey != key || d.cfgText != text {
-		keyChanged := d.cfgKey != key
-		d.cfgOut = highlightYAML(text, d.color)
-		d.cfgKey, d.cfgText = key, text
-		d.highlights++
-		d.applyContent()
-		if keyChanged {
-			d.vp.GotoTop()
-		}
+	if d.cfgKey == key && c.Err == d.cfgErr && c.YAML == d.cfgYAML && bytes.Equal(c.JSON, d.cfgJSON) {
 		return
 	}
+	keyChanged := d.cfgKey != key
+	d.cfgKey, d.cfgErr, d.cfgYAML, d.cfgJSON = key, c.Err, c.YAML, c.JSON
+	text, problem := c.Render()
+	if !keyChanged && text == d.cfgText && problem == d.cfgProblem {
+		return
+	}
+	if keyChanged || text != d.cfgText {
+		d.cfgOut = highlightYAML(text, d.color)
+		d.cfgText = text
+		d.highlights++
+	}
+	d.cfgProblem = problem
 	d.applyContent()
+	if keyChanged {
+		d.vp.GotoTop()
+	}
 }
 
 // numberLines prefixes every line with a dark-grey, right-aligned line number
@@ -117,8 +142,8 @@ func (d *detailPane) applyContent() {
 		return
 	}
 	w := max(d.width, 1)
-	if _, problem := d.item.Config().Render(); problem != "" {
-		d.vp.SetContent(clipLines(dimStyle.Render(problem), w))
+	if d.cfgProblem != "" {
+		d.vp.SetContent(clipLines(dimStyle.Render(d.cfgProblem), w))
 		return
 	}
 	d.vp.SetContent(clipLines(numberLines(d.cfgOut), w))
@@ -129,7 +154,14 @@ func (d *detailPane) HandleKey(k tea.KeyMsg) {
 		return
 	}
 	if d.tab == tabConfig {
-		d.vp, _ = d.vp.Update(k)
+		switch k.String() {
+		case "home", "g":
+			d.vp.GotoTop()
+		case "end", "G":
+			d.vp.GotoBottom()
+		default:
+			d.vp, _ = d.vp.Update(k)
+		}
 		return
 	}
 	maxS := d.item.OverviewMaxScroll(d.width, d.height-1)

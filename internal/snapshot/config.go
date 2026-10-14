@@ -31,7 +31,8 @@ type lazyYAML struct {
 	err  error
 }
 
-func newConfigInfo(json []byte) ConfigInfo {
+// NewConfigInfo wraps raw JSON for lazy, cached YAML conversion.
+func NewConfigInfo(json []byte) ConfigInfo {
 	return ConfigInfo{JSON: json, lazy: &lazyYAML{}}
 }
 
@@ -47,7 +48,7 @@ func (c ConfigInfo) Render() (text, problem string) {
 	}
 	lz := c.lazy
 	if lz == nil {
-		lz = &lazyYAML{} // built without newConfigInfo: convert, uncached
+		lz = &lazyYAML{} // built without NewConfigInfo: convert, uncached
 	}
 	lz.once.Do(func() {
 		y, err := yaml.JSONToYAML(c.JSON)
@@ -60,5 +61,5 @@ func (c ConfigInfo) Render() (text, problem string) {
 	return lz.text, ""
 }
 
-// rendered reports whether the conversion has run (a test hook).
-func (c ConfigInfo) rendered() bool { return c.lazy != nil && c.lazy.done.Load() }
+// Rendered reports whether the conversion has run (a test hook).
+func (c ConfigInfo) Rendered() bool { return c.lazy != nil && c.lazy.done.Load() }

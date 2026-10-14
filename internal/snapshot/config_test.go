@@ -13,15 +13,15 @@ import (
 )
 
 func TestRenderConvertsLazilyAndCaches(t *testing.T) {
-	c := newConfigInfo([]byte(`{"name":"api","type":"EDS"}`))
-	if c.rendered() {
+	c := NewConfigInfo([]byte(`{"name":"api","type":"EDS"}`))
+	if c.Rendered() {
 		t.Fatal("nothing is converted until Render is called")
 	}
 	text, problem := c.Render()
 	if problem != "" || !strings.Contains(text, "name: api") || !strings.Contains(text, "type: EDS") {
 		t.Fatalf("text=%q problem=%q", text, problem)
 	}
-	if !c.rendered() {
+	if !c.Rendered() {
 		t.Fatal("Render must mark the cache")
 	}
 	again, _ := c.Render()
@@ -30,7 +30,7 @@ func TestRenderConvertsLazilyAndCaches(t *testing.T) {
 	}
 	// a copy of the struct shares the cache
 	cp := c
-	if !cp.rendered() {
+	if !cp.Rendered() {
 		t.Fatal("copies share one cache")
 	}
 }
@@ -45,7 +45,7 @@ func TestRenderPrecedenceAndProblems(t *testing.T) {
 	if text, problem := (ConfigInfo{}).Render(); text != "" || problem != "" {
 		t.Fatalf("empty: %q %q", text, problem)
 	}
-	_, problem := newConfigInfo([]byte(`{not json`)).Render()
+	_, problem := NewConfigInfo([]byte(`{not json`)).Render()
 	if !strings.HasPrefix(problem, "config unavailable: render yaml:") {
 		t.Fatalf("bad JSON must surface as a problem: %q", problem)
 	}
@@ -56,11 +56,11 @@ func TestRenderPrecedenceAndProblems(t *testing.T) {
 }
 
 func TestRenderIsSafeConcurrently(t *testing.T) {
-	c := newConfigInfo([]byte(`{"a":1}`))
+	c := NewConfigInfo([]byte(`{"a":1}`))
 	var wg sync.WaitGroup
 	for i := 0; i < 20; i++ {
 		wg.Add(1)
-		go func() { defer wg.Done(); c.Render(); c.rendered() }()
+		go func() { defer wg.Done(); c.Render(); c.Rendered() }()
 	}
 	wg.Wait()
 }
@@ -72,7 +72,7 @@ func TestFetchDoesNotConvertYAML(t *testing.T) {
 		t.Fatal("precondition: clusters")
 	}
 	for _, c := range s.Clusters {
-		if c.Config.rendered() {
+		if c.Config.Rendered() {
 			t.Fatalf("%s was converted during Fetch", c.Name)
 		}
 		if c.Config.YAML != "" || len(c.Config.JSON) == 0 {
@@ -80,7 +80,7 @@ func TestFetchDoesNotConvertYAML(t *testing.T) {
 		}
 	}
 	text, _ := s.Clusters[0].Config.Render()
-	if text == "" || !s.Clusters[0].Config.rendered() {
+	if text == "" || !s.Clusters[0].Config.Rendered() {
 		t.Fatal("rendering the selected item converts it")
 	}
 }

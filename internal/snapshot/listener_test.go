@@ -208,7 +208,7 @@ func TestFetchListenersFromDemo(t *testing.T) {
 	}
 	// nothing was converted to YAML during Fetch
 	for _, l := range s.Listeners {
-		if l.Config.rendered() {
+		if l.Config.Rendered() {
 			t.Fatalf("%s converted during Fetch", l.Name)
 		}
 	}

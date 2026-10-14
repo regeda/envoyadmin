@@ -164,7 +164,7 @@ func Fetch(ctx context.Context, c admin.Client) (Snapshot, error) {
 			cluster.Config.Err = "config unavailable: not present in config_dump"
 		default:
 			cluster.Type = cc.Type
-			cluster.Config = newConfigInfo(cc.JSON)
+			cluster.Config = NewConfigInfo(cc.JSON)
 			cluster.Config.VersionInfo = cc.VersionInfo
 			cluster.Config.LastUpdated = cc.LastUpdated
 			cluster.Config.Static = cc.Static

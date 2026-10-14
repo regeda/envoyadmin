@@ -88,7 +88,7 @@ func listenerFrom(lc admin.ListenerConfig) Listener {
 		shown = nil
 	}
 	l.Address, l.Chains = parseListener(shown)
-	l.Config = newConfigInfo(shown)
+	l.Config = NewConfigInfo(shown)
 	l.Config.VersionInfo, l.Config.LastUpdated, l.Config.Static = l.VersionInfo, l.LastUpdated, l.Static
 	return l
 }

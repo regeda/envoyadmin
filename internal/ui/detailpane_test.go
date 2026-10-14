@@ -103,6 +103,7 @@ func TestConfigTabStaticAndError(t *testing.T) {
 
 func TestHighlightIsCached(t *testing.T) {
 	d := newDetail(true)
+	d.SetTab(tabConfig) // the YAML is only rendered while Config shows
 	c := configCluster()
 	d.SetItem(clusterItem{c}, true)
 	d.SetItem(clusterItem{c}, true)
@@ -253,6 +254,7 @@ func TestPlainYAMLHasNoEscapesWhenColorOff(t *testing.T) {
 	}
 	d2 := newDetail(true)
 	d2.SetItem(clusterItem{configCluster()}, true)
+	d2.SetTab(tabConfig)
 	if !strings.Contains(d2.cfgOut, "\x1b[") {
 		t.Fatal("color on must highlight")
 	}
@@ -525,5 +527,163 @@ func TestLineNumbersAreDarkerThanDimText(t *testing.T) {
 	// the number and its bar are styled together; the YAML text itself is untouched
 	if idx := strings.Index(row, "name: api"); idx < 0 || strings.Contains(row[idx:], "\x1b[") {
 		t.Fatalf("the YAML text must not inherit the gutter colour: %q", row)
+	}
+}
+
+func jsonListener(name, body string) snapshot.Listener {
+	l := snapshot.Listener{Name: name, Config: snapshot.NewConfigInfo([]byte(body))}
+	l.Config.VersionInfo = "v9"
+	return l
+}
+
+func TestConfigNotConvertedWhileOverviewShows(t *testing.T) {
+	d := newDetail(false)
+	l := jsonListener("a", `{"name":"a","port":1}`)
+	d.SetItem(listenerItem{l}, true)
+	if l.Config.Rendered() || d.highlights != 0 {
+		t.Fatalf("the Overview tab must not convert or highlight (rendered=%v highlights=%d)", l.Config.Rendered(), d.highlights)
+	}
+	d.SetTab(tabConfig)
+	if !l.Config.Rendered() || d.highlights != 1 {
+		t.Fatalf("opening Config must render once (rendered=%v highlights=%d)", l.Config.Rendered(), d.highlights)
+	}
+	v := ansi.Strip(d.View())
+	if !strings.Contains(v, "1│ name: a") || !strings.Contains(v, "2│ port: 1") || !strings.Contains(v, "version_info: v9") {
+		t.Fatalf("opened Config must show numbered YAML and the header:\n%s", v)
+	}
+}
+
+func TestConfigHeaderShownWithoutRenderingYAML(t *testing.T) {
+	d := newDetail(false)
+	l := jsonListener("a", `{"name":"a"}`)
+	d.SetItem(listenerItem{l}, true)
+	d.SetTab(tabConfig)
+	d.SetTab(tabOverview)
+	l2 := jsonListener("b", `{"name":"b"}`)
+	l2.Config.VersionInfo = "v10"
+	d.SetItem(listenerItem{l2}, true)
+	d.SetTab(tabConfig)
+	if v := d.View(); !strings.Contains(v, "version_info: v10") || !strings.Contains(v, "name: b") {
+		t.Fatalf("\n%s", v)
+	}
+}
+
+func TestIdenticalJSONIsNotReRenderedOnConfigTab(t *testing.T) {
+	d := newDetail(true)
+	d.SetTab(tabConfig)
+	d.SetItem(listenerItem{jsonListener("a", `{"name":"a"}`)}, true)
+	if d.highlights != 1 {
+		t.Fatalf("highlights %d", d.highlights)
+	}
+	for i := 0; i < 3; i++ { // every poll builds a fresh ConfigInfo with equal bytes
+		l := jsonListener("a", `{"name":"a"}`)
+		d.SetItem(listenerItem{l}, true)
+		if l.Config.Rendered() {
+			t.Fatalf("poll %d: identical JSON must not be converted again", i)
+		}
+	}
+	if d.highlights != 1 {
+		t.Fatalf("highlights %d, want 1", d.highlights)
+	}
+}
+
+func TestChangedJSONIsReRendered(t *testing.T) {
+	d := newDetail(false)
+	d.SetTab(tabConfig)
+	d.SetItem(listenerItem{jsonListener("a", `{"name":"a","port":1}`)}, true)
+	l := jsonListener("a", `{"name":"a","port":2}`)
+	d.SetItem(listenerItem{l}, true)
+	if !l.Config.Rendered() || d.highlights != 2 || !strings.Contains(d.View(), "port: 2") {
+		t.Fatalf("changed JSON must re-render (highlights %d):\n%s", d.highlights, d.View())
+	}
+}
+
+func TestConfigOpenedAfterKeyChangeOnOverviewStartsAtTop(t *testing.T) {
+	big := func(name string) string {
+		var b strings.Builder
+		b.WriteString(`{"a_id":"` + name + `"`)
+		for i := 0; i < 80; i++ {
+			fmt.Fprintf(&b, `,"k%02d":%d`, i, i)
+		}
+		return b.String() + "}"
+	}
+	d := newDetail(false)
+	d.SetTab(tabConfig)
+	d.SetItem(listenerItem{jsonListener("a", big("a"))}, true)
+	d.HandleKey(key("pgdown"))
+	if d.vp.YOffset == 0 {
+		t.Fatal("precondition: scrolled")
+	}
+	d.SetTab(tabOverview)
+	d.SetItem(listenerItem{jsonListener("b", big("b"))}, true)
+	d.SetTab(tabConfig)
+	if d.vp.YOffset != 0 || !strings.Contains(d.View(), "a_id: b") {
+		t.Fatalf("a different item opened on Config starts at the top (YOffset %d)", d.vp.YOffset)
+	}
+}
+
+func bigYAMLListener() (snapshot.Listener, int) {
+	const n = 500
+	var b strings.Builder
+	for i := 1; i <= n; i++ {
+		fmt.Fprintf(&b, "key%03d: v%d\n", i, i)
+	}
+	l := snapshot.Listener{Name: "big"}
+	l.Config.YAML = b.String()
+	return l, n
+}
+
+func TestConfigHomeEndGotoTopAndBottom(t *testing.T) {
+	l, n := bigYAMLListener()
+	last := fmt.Sprintf("key%03d: v%d", n, n)
+	for _, bottom := range []string{"G", "end"} {
+		for _, top := range []string{"g", "home"} {
+			d := newDetail(false)
+			d.SetTab(tabConfig)
+			d.SetItem(listenerItem{l}, true)
+			d.HandleKey(key(bottom))
+			if !strings.Contains(d.View(), last) || d.vp.YOffset != n-d.vp.Height {
+				t.Fatalf("%s: want the last line visible at the max offset, YOffset %d:\n%s", bottom, d.vp.YOffset, d.View())
+			}
+			d.HandleKey(key("pgup"))
+			if d.vp.YOffset >= n-d.vp.Height {
+				t.Fatalf("pgup still works after %s", bottom)
+			}
+			d.HandleKey(key(top))
+			if d.vp.YOffset != 0 || !strings.Contains(d.View(), "key001: v1") {
+				t.Fatalf("%s: want the top, YOffset %d", top, d.vp.YOffset)
+			}
+			d.HandleKey(key("pgdown"))
+			if d.vp.YOffset == 0 {
+				t.Fatal("pgdown must still scroll")
+			}
+			d.HandleKey(key("down"))
+			d.HandleKey(key("up"))
+		}
+	}
+}
+
+func TestConfigHomeEndThroughTheModel(t *testing.T) {
+	l, n := bigYAMLListener()
+	last := fmt.Sprintf("key%03d: v%d", n, n)
+	m := sized(New(testOpts(nil)), 120, 30)
+	m = send(m, snapshotMsg{snap: lsnap(l)})
+	m = send(m, key("tab"))
+	m = send(m, key("enter"))
+	m = send(m, key("c"))
+	for _, bottom := range []string{"G", "end"} {
+		m = send(m, key("g"))
+		m = send(m, key(bottom))
+		d := m.cur().detail
+		if !strings.Contains(m.View(), last) || d.vp.YOffset != n-d.vp.Height {
+			t.Fatalf("%s: the last YAML line must be visible (YOffset %d)", bottom, d.vp.YOffset)
+		}
+		if activeName(m) != "big" || m.focus != focusDetail {
+			t.Fatal("focus and selection stay")
+		}
+	}
+	m = send(m, key("home"))
+	if m.cur().detail.vp.YOffset != 0 {
+		t.Fatal("home returns to the top")
 	}
 }
