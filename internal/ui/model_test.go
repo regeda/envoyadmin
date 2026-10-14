@@ -179,7 +179,7 @@ func TestSelectionDrivesDetailAndKeys(t *testing.T) {
 		t.Fatal(m.View())
 	}
 	m = send(m, key("down"))
-	if c, _ := m.list.Selected(); c.Name != "beta" {
+	if it, _ := m.list.Selected(); it.Key() != "beta" {
 		t.Fatal("down selects beta")
 	}
 	if !strings.Contains(m.detail.View(), "beta") {
@@ -190,7 +190,7 @@ func TestSelectionDrivesDetailAndKeys(t *testing.T) {
 		t.Fatal("c opens config")
 	}
 	m = send(m, key("e"))
-	if m.detail.tab != tabEndpoints {
+	if m.detail.tab != tabOverview {
 		t.Fatal("e opens endpoints")
 	}
 	m = send(m, key("tab"))
@@ -337,9 +337,9 @@ func TestSelectedClusterDisappearing(t *testing.T) {
 	m = send(m, snapshotMsg{snap: snap(cl("alpha", 1, 1), cl("beta", 1, 1), cl("gamma", 1, 1))})
 	m = send(m, key("down"))
 	m = send(m, snapshotMsg{snap: snap(cl("alpha", 1, 1), cl("gamma", 1, 1))})
-	c, ok := m.list.Selected()
-	if !ok || m.detail.cluster.Name != c.Name || c.Name == "beta" {
-		t.Fatalf("detail=%q list=%q", m.detail.cluster.Name, c.Name)
+	it, ok := m.list.Selected()
+	if !ok || m.detail.item.Key() != it.Key() || it.Key() == "beta" {
+		t.Fatalf("detail=%q list=%q", m.detail.item.Key(), it.Key())
 	}
 	m = send(m, snapshotMsg{snap: snap()})
 	if !strings.Contains(m.View(), "no cluster selected") {

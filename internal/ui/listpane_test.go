@@ -52,20 +52,20 @@ func typeInto(l *listPane, s string) {
 func newList(cs ...snapshot.Cluster) listPane {
 	l := newListPane()
 	l.SetSize(60, 12)
-	l.SetClusters(cs)
+	l.SetItems(clusterItems(cs))
 	return l
 }
 
 func TestCursorMovesAndClamps(t *testing.T) {
 	l := newList(cl("a", 1, 1), cl("b", 1, 1), cl("c", 1, 1))
 	l.HandleKey(key("up"))
-	if c, _ := l.Selected(); c.Name != "a" {
+	if it, _ := l.Selected(); it.Key() != "a" {
 		t.Fatal("up at top must clamp")
 	}
 	for i := 0; i < 5; i++ {
 		l.HandleKey(key("down"))
 	}
-	if c, _ := l.Selected(); c.Name != "c" {
+	if it, _ := l.Selected(); it.Key() != "c" {
 		t.Fatal("down at bottom must clamp")
 	}
 }
@@ -73,9 +73,9 @@ func TestCursorMovesAndClamps(t *testing.T) {
 func TestSelectionFollowsNameAcrossRefresh(t *testing.T) {
 	l := newList(cl("a", 1, 1), cl("b", 1, 1), cl("c", 1, 1))
 	l.HandleKey(key("down")) // b
-	l.SetClusters([]snapshot.Cluster{cl("z", 1, 1), cl("c", 1, 1), cl("b", 1, 1)})
-	if c, _ := l.Selected(); c.Name != "b" {
-		t.Fatalf("selection jumped to %q", c.Name)
+	l.SetItems(clusterItems([]snapshot.Cluster{cl("z", 1, 1), cl("c", 1, 1), cl("b", 1, 1)}))
+	if it, _ := l.Selected(); it.Key() != "b" {
+		t.Fatalf("selection jumped to %q", it.Key())
 	}
 }
 
@@ -83,11 +83,11 @@ func TestSelectedClusterDisappears(t *testing.T) {
 	l := newList(cl("a", 1, 1), cl("b", 1, 1), cl("c", 1, 1))
 	l.HandleKey(key("down"))
 	l.HandleKey(key("down")) // c, last row
-	l.SetClusters([]snapshot.Cluster{cl("a", 1, 1), cl("b", 1, 1)})
-	if c, ok := l.Selected(); !ok || c.Name != "b" {
-		t.Fatalf("should fall to nearest row, got %q ok=%v", c.Name, ok)
+	l.SetItems(clusterItems([]snapshot.Cluster{cl("a", 1, 1), cl("b", 1, 1)}))
+	if it, ok := l.Selected(); !ok || it.Key() != "b" {
+		t.Fatalf("should fall to nearest row, got %q ok=%v", it.Key(), ok)
 	}
-	l.SetClusters(nil)
+	l.SetItems(clusterItems(nil))
 	if _, ok := l.Selected(); ok {
 		t.Fatal("empty list must have no selection")
 	}
@@ -129,6 +129,7 @@ func TestFilterWithNoMatch(t *testing.T) {
 
 func TestEmptyAndWaiting(t *testing.T) {
 	l := newList()
+	l.SetEmptyText("no clusters")
 	if !strings.Contains(l.View(), "no clusters") {
 		t.Fatal(l.View())
 	}
@@ -211,7 +212,7 @@ func TestScrollWindowShrinksWithList(t *testing.T) {
 	for i := 0; i < 49; i++ {
 		l.HandleKey(key("down"))
 	}
-	l.SetClusters(cs[:20])
+	l.SetItems(clusterItems(cs[:20]))
 	v := l.View()
 	if !strings.Contains(v, "svc-19") || !strings.Contains(v, "svc-09") {
 		t.Fatalf("window must be full after shrink:\n%s", v)
@@ -268,7 +269,7 @@ func TestTinyPaneDoesNotPanic(t *testing.T) {
 	l := newListPane()
 	_ = l.View() // zero size, no data
 	l.SetSize(1, 1)
-	l.SetClusters([]snapshot.Cluster{cl("a", 1, 1)})
+	l.SetItems(clusterItems([]snapshot.Cluster{cl("a", 1, 1)}))
 	_ = l.View()
 }
 
@@ -278,11 +279,38 @@ func TestListRowsFitNarrowPane(t *testing.T) {
 	for _, w := range []int{28, 31, 32, 40} {
 		l := newListPane()
 		l.SetSize(w, 8)
-		l.SetClusters([]snapshot.Cluster{cl("orders-database-primary", 0, 2), cl("api-gateway", 2, 3)})
+		l.SetItems(clusterItems([]snapshot.Cluster{cl("orders-database-primary", 0, 2), cl("api-gateway", 2, 3)}))
 		for i := range l.visible {
 			if rw := lipgloss.Width(l.row(i)); rw > w {
 				t.Fatalf("w=%d row %d width %d: %q", w, i, rw, l.row(i))
 			}
 		}
+	}
+}
+
+func TestEmptyTextNoticeAndPrecedence(t *testing.T) {
+	l := newListPane()
+	l.SetSize(60, 12)
+	l.SetEmptyText("no widgets")
+	if !strings.Contains(l.View(), "no widgets") {
+		t.Fatal(l.View())
+	}
+	l.SetNotice("widgets unavailable: boom")
+	if v := l.View(); !strings.Contains(v, "widgets unavailable: boom") || strings.Contains(v, "no widgets") {
+		t.Fatalf("a notice replaces the empty text:\n%s", v)
+	}
+	l.SetWaiting(true)
+	if !strings.Contains(l.View(), "waiting for Envoy") {
+		t.Fatal("waiting wins over a notice")
+	}
+	l.SetWaiting(false)
+	l.SetNotice(strings.Repeat("long error words ", 30))
+	for _, line := range strings.Split(l.View(), "\n") {
+		if lipgloss.Width(line) > 60 {
+			t.Fatalf("notice line wider than the pane: %q", line)
+		}
+	}
+	if n := len(strings.Split(l.View(), "\n")); n != 12 {
+		t.Fatalf("height %d, want 12", n)
 	}
 }

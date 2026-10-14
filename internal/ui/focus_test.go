@@ -109,12 +109,12 @@ func TestDetailFocusKeysDoNotMoveTheClusterSelection(t *testing.T) {
 	before, _ := m.list.Selected()
 	m = send(m, key("j"))
 	after, _ := m.list.Selected()
-	if before.Name != after.Name {
-		t.Fatalf("j in detail focus moved the selection %q -> %q", before.Name, after.Name)
+	if before.Key() != after.Key() {
+		t.Fatalf("j in detail focus moved the selection %q -> %q", before.Key(), after.Key())
 	}
 	m = send(m, key("tab"))
 	m = send(m, key("j"))
-	if c, _ := m.list.Selected(); c.Name == before.Name {
+	if it, _ := m.list.Selected(); it.Key() == before.Key() {
 		t.Fatal("j in list focus must move the selection")
 	}
 }
@@ -162,6 +162,6 @@ func TestTabThenArrowsScrollTheConfig(t *testing.T) {
 }
 
 func selectedName(m Model) string {
-	c, _ := m.list.Selected()
-	return c.Name
+	it, _ := m.list.Selected()
+	return it.Key()
 }

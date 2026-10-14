@@ -1,37 +1,30 @@
 package ui
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/sahilm/fuzzy"
-
-	"github.com/regeda/txenvoy/internal/snapshot"
-)
-
-const (
-	typeW  = 12
-	countW = 7
-	fixedW = 3 + 1 + typeW + 1 + countW // prefix, gap, type, gap, count
 )
 
 type match struct {
 	idx  int   // index into listPane.all
-	hits []int // matched byte offsets in the name (as reported by fuzzy)
+	hits []int // matched byte offsets in FilterText (as reported by fuzzy)
 }
 
 type listPane struct {
-	all           []snapshot.Cluster
+	all           []resourceItem
 	visible       []match
 	cursor        int
-	selected      string
+	selected      string // the selected item's Key
 	query         string
 	filtering     bool
-	unfocused     bool // zero value = focused, so a standalone list behaves as before
+	unfocused     bool // zero value = focused
 	waiting       bool
+	emptyText     string
+	notice        string
 	input         textinput.Model
 	width, height int
 	offset        int
@@ -41,13 +34,13 @@ func newListPane() listPane {
 	ti := textinput.New()
 	ti.Prompt = "/ "
 	ti.CharLimit = 100
-	return listPane{input: ti}
+	return listPane{input: ti, emptyText: "no items"}
 }
 
-type clusterNames []snapshot.Cluster
+type itemTexts []resourceItem
 
-func (n clusterNames) String(i int) string { return n[i].Name }
-func (n clusterNames) Len() int            { return len(n) }
+func (n itemTexts) String(i int) string { return n[i].FilterText() }
+func (n itemTexts) Len() int            { return len(n) }
 
 func (l *listPane) SetSize(w, h int) {
 	l.width, l.height = w, h
@@ -55,20 +48,22 @@ func (l *listPane) SetSize(w, h int) {
 	l.clampOffset()
 }
 
-func (l *listPane) SetWaiting(v bool) { l.waiting = v }
+func (l *listPane) SetWaiting(v bool)     { l.waiting = v }
+func (l *listPane) SetEmptyText(s string) { l.emptyText = s }
+func (l *listPane) SetNotice(s string)    { l.notice = s }
 
 // SetFocused tells the pane whether it owns the keyboard; an unfocused pane
 // draws its cursor as › instead of >.
 func (l *listPane) SetFocused(f bool) { l.unfocused = !f }
 
-func (l *listPane) SetClusters(cs []snapshot.Cluster) {
-	l.all = cs
+func (l *listPane) SetItems(items []resourceItem) {
+	l.all = items
 	l.refilter()
 }
 
-func (l *listPane) Selected() (snapshot.Cluster, bool) {
+func (l *listPane) Selected() (resourceItem, bool) {
 	if len(l.visible) == 0 {
-		return snapshot.Cluster{}, false
+		return nil, false
 	}
 	return l.all[l.visible[l.cursor].idx], true
 }
@@ -80,7 +75,7 @@ func (l *listPane) refilter() {
 			vis = append(vis, match{idx: i})
 		}
 	} else {
-		for _, m := range fuzzy.FindFrom(l.query, clusterNames(l.all)) {
+		for _, m := range fuzzy.FindFrom(l.query, itemTexts(l.all)) {
 			vis = append(vis, match{idx: m.Index, hits: m.MatchedIndexes})
 		}
 	}
@@ -88,11 +83,11 @@ func (l *listPane) refilter() {
 	l.restoreCursor()
 }
 
-// restoreCursor keeps the selection on the same cluster name; if it is gone
-// it falls to the nearest row.
+// restoreCursor keeps the selection on the same Key; if it is gone it falls
+// to the nearest row.
 func (l *listPane) restoreCursor() {
 	for i, m := range l.visible {
-		if l.all[m.idx].Name == l.selected {
+		if l.all[m.idx].Key() == l.selected {
 			l.cursor = i
 			l.clampOffset()
 			return
@@ -102,7 +97,7 @@ func (l *listPane) restoreCursor() {
 	l.cursor = max(l.cursor, 0)
 	l.selected = ""
 	if len(l.visible) > 0 {
-		l.selected = l.all[l.visible[l.cursor].idx].Name
+		l.selected = l.all[l.visible[l.cursor].idx].Key()
 	}
 	l.clampOffset()
 }
@@ -125,7 +120,7 @@ func (l *listPane) move(d int) {
 		return
 	}
 	l.cursor = max(0, min(l.cursor+d, len(l.visible)-1))
-	l.selected = l.all[l.visible[l.cursor].idx].Name
+	l.selected = l.all[l.visible[l.cursor].idx].Key()
 	l.clampOffset()
 }
 
@@ -191,58 +186,24 @@ func (l listPane) filterLine() string {
 
 func (l listPane) row(i int) string {
 	m := l.visible[i]
-	c := l.all[m.idx]
-	// In the narrowest pane the type column gives way so a row never wraps.
-	tw := max(min(typeW, l.width-(fixedW-typeW)-8), 1)
-	nameW := max(l.width-(fixedW-typeW+tw), 8)
-
-	plain := trunc(c.Name, nameW)
-	hit := map[int]bool{}
-	for _, h := range m.hits {
-		hit[h] = true
-	}
-	var name strings.Builder
-	for bi, r := range plain {
-		s := string(r)
-		switch {
-		case hit[bi]:
-			s = lipgloss.NewStyle().Bold(true).Underline(true).Render(s)
-		case i == l.cursor:
-			s = boldStyle.Render(s)
-		}
-		name.WriteString(s)
-	}
-	namePad := strings.Repeat(" ", max(nameW-lipgloss.Width(plain), 0))
-
-	prefix := " "
-	if i == l.cursor {
-		prefix = ">"
-		if l.unfocused {
-			prefix = "›"
-		}
-	}
-	count := fmt.Sprintf("%d/%d", c.HealthyCount(), len(c.Hosts))
-	countCell := strings.Repeat(" ", max(countW-lipgloss.Width(count), 0)) + count
-	typeCell := pad(trunc(c.Type, tw), tw)
-
-	line := prefix + markerStyle(c.Health()).Render("●") + " " + name.String() + namePad + " " + typeCell + " " + countCell
-	if c.Health() == snapshot.Empty {
-		line = prefix + markerStyle(c.Health()).Render("●") + " " + name.String() + namePad + " " + dimStyle.Render(typeCell+" "+countCell)
-	}
-	return line
+	return l.all[m.idx].Row(rowCtx{Width: l.width, Cursor: i == l.cursor, Unfocused: l.unfocused, Hits: m.hits})
 }
 
 func (l listPane) View() string {
 	lines := []string{l.filterLine()}
 	if len(l.visible) == 0 {
-		msg := "no clusters"
 		switch {
 		case l.waiting:
-			msg = "waiting for Envoy…"
+			lines = append(lines, dimStyle.Render("waiting for Envoy…"))
+		case l.notice != "":
+			for _, row := range wrapLines(l.notice, max(l.width, 1), max(l.rows(), 1)) {
+				lines = append(lines, warnStyle.Render(row))
+			}
 		case l.query != "":
-			msg = "no matches"
+			lines = append(lines, dimStyle.Render("no matches"))
+		default:
+			lines = append(lines, dimStyle.Render(l.emptyText))
 		}
-		lines = append(lines, dimStyle.Render(msg))
 	}
 	end := min(l.offset+l.rows(), len(l.visible))
 	for i := l.offset; i < end; i++ {

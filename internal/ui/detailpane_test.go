@@ -46,7 +46,8 @@ func TestHighlightYAML(t *testing.T) {
 
 func TestNoClusterSelected(t *testing.T) {
 	d := newDetail(false)
-	d.SetCluster(snapshot.Cluster{}, false)
+	d.SetEmptyText("no cluster selected")
+	d.SetItem(nil, false)
 	if !strings.Contains(d.View(), "no cluster selected") {
 		t.Fatal(d.View())
 	}
@@ -58,7 +59,7 @@ func TestNoClusterSelected(t *testing.T) {
 
 func TestEndpointsTabIsDefault(t *testing.T) {
 	d := newDetail(false)
-	d.SetCluster(configCluster(), true)
+	d.SetItem(clusterItem{configCluster()}, true)
 	v := d.View()
 	if !strings.Contains(v, "10.0.0.1:80") || !strings.Contains(v, "api") {
 		t.Fatal(v)
@@ -70,7 +71,7 @@ func TestEndpointsTabIsDefault(t *testing.T) {
 
 func TestConfigTabShowsVersionAndYAML(t *testing.T) {
 	d := newDetail(false)
-	d.SetCluster(configCluster(), true)
+	d.SetItem(clusterItem{configCluster()}, true)
 	d.SetTab(tabConfig)
 	v := d.View()
 	for _, want := range []string{"version_info: 42", "last_updated: 2026-10-14", "connect_timeout: 5s"} {
@@ -87,14 +88,14 @@ func TestConfigTabStaticAndError(t *testing.T) {
 	c := configCluster()
 	c.Config.Static, c.Config.VersionInfo = true, ""
 	d := newDetail(false)
-	d.SetCluster(c, true)
+	d.SetItem(clusterItem{c}, true)
 	d.SetTab(tabConfig)
 	if !strings.Contains(d.View(), "static") || strings.Contains(d.View(), "version_info") {
 		t.Fatal(d.View())
 	}
 
 	c.Config = snapshot.ConfigInfo{Err: "config unavailable: boom"}
-	d.SetCluster(c, true)
+	d.SetItem(clusterItem{c}, true)
 	if !strings.Contains(d.View(), "config unavailable: boom") {
 		t.Fatal(d.View())
 	}
@@ -103,14 +104,14 @@ func TestConfigTabStaticAndError(t *testing.T) {
 func TestHighlightIsCached(t *testing.T) {
 	d := newDetail(true)
 	c := configCluster()
-	d.SetCluster(c, true)
-	d.SetCluster(c, true)
-	d.SetCluster(c, true)
+	d.SetItem(clusterItem{c}, true)
+	d.SetItem(clusterItem{c}, true)
+	d.SetItem(clusterItem{c}, true)
 	if d.highlights != 1 {
 		t.Fatalf("highlighted %d times, want 1", d.highlights)
 	}
 	c.Config.YAML += "extra: 1\n"
-	d.SetCluster(c, true)
+	d.SetItem(clusterItem{c}, true)
 	if d.highlights != 2 {
 		t.Fatalf("changed YAML must re-highlight, got %d", d.highlights)
 	}
@@ -122,20 +123,20 @@ func TestEndpointScrollResetsOnClusterChange(t *testing.T) {
 		big.Hosts = append(big.Hosts, snapshot.Host{Address: "10.0.0." + string(rune('a'+i%26)) + ":80"})
 	}
 	d := newDetail(false)
-	d.SetCluster(big, true)
+	d.SetItem(clusterItem{big}, true)
 	for i := 0; i < 100; i++ {
 		d.HandleKey(key("j"))
 	}
 	if d.scroll != maxEndpointScroll(big, 13) {
 		t.Fatalf("scroll = %d, want clamp %d", d.scroll, maxEndpointScroll(big, 13))
 	}
-	d.SetCluster(big, true) // same cluster: keep scroll
+	d.SetItem(clusterItem{big}, true) // same cluster: keep scroll
 	if d.scroll == 0 {
 		t.Fatal("refresh of the same cluster must keep scroll")
 	}
 	other := big
 	other.Name = "other"
-	d.SetCluster(other, true)
+	d.SetItem(clusterItem{other}, true)
 	if d.scroll != 0 {
 		t.Fatal("a different cluster resets scroll")
 	}
@@ -146,8 +147,8 @@ func TestDetailViewWidthIsBounded(t *testing.T) {
 	d.SetSize(40, 10)
 	c := configCluster()
 	c.Config.YAML = strings.Repeat("k: "+strings.Repeat("v", 200)+"\n", 3)
-	d.SetCluster(c, true)
-	for _, tb := range []tab{tabEndpoints, tabConfig} {
+	d.SetItem(clusterItem{c}, true)
+	for _, tb := range []tab{tabOverview, tabConfig} {
 		d.SetTab(tb)
 		for _, l := range strings.Split(d.View(), "\n") {
 			if lipgloss.Width(l) > 40 {
@@ -160,10 +161,10 @@ func TestDetailViewWidthIsBounded(t *testing.T) {
 func TestDetailDegenerateInputsDoNotPanic(t *testing.T) {
 	for _, size := range [][2]int{{0, 0}, {1, 1}, {0, 5}, {5, 0}, {3, 2}} {
 		for _, has := range []bool{false, true} {
-			for _, tb := range []tab{tabEndpoints, tabConfig} {
+			for _, tb := range []tab{tabOverview, tabConfig} {
 				d := newDetailPane(true)
 				d.SetSize(size[0], size[1])
-				d.SetCluster(configCluster(), has)
+				d.SetItem(clusterItem{configCluster()}, has)
 				d.SetTab(tb)
 				d.HandleKey(key("j"))
 				d.HandleKey(key("G"))
@@ -185,14 +186,14 @@ func TestConfigErrorReplacesYAMLAndRecovers(t *testing.T) {
 	c := configCluster()
 	c.Config.Err = "config unavailable: boom"
 	d := newDetail(false)
-	d.SetCluster(c, true)
+	d.SetItem(clusterItem{c}, true)
 	d.SetTab(tabConfig)
 	v := d.View()
 	if !strings.Contains(v, "config unavailable: boom") || strings.Contains(v, "connect_timeout") {
 		t.Fatal(v)
 	}
 	c.Config.Err = ""
-	d.SetCluster(c, true)
+	d.SetItem(clusterItem{c}, true)
 	if v := d.View(); !strings.Contains(v, "connect_timeout: 5s") || strings.Contains(v, "boom") {
 		t.Fatal(v)
 	}
@@ -203,7 +204,7 @@ func TestLongYAMLLineClippedButStartVisible(t *testing.T) {
 	d.SetSize(30, 10)
 	c := configCluster()
 	c.Config.YAML = "key: " + strings.Repeat("v", 200) + "\nnext: 1\n"
-	d.SetCluster(c, true)
+	d.SetItem(clusterItem{c}, true)
 	d.SetTab(tabConfig)
 	v := d.View()
 	if !strings.Contains(v, "key: vvvv") || !strings.Contains(v, "next: 1") {
@@ -224,7 +225,7 @@ func TestConfigScrollKeepsAcrossRefreshResetsOnClusterChange(t *testing.T) {
 		c.Config.YAML += "line" + strings.Repeat("x", i%3) + ": " + string(rune('a'+i%26)) + "\n"
 	}
 	d := newDetail(false)
-	d.SetCluster(c, true)
+	d.SetItem(clusterItem{c}, true)
 	d.SetTab(tabConfig)
 	first := d.View()
 	d.HandleKey(key("pgdown"))
@@ -232,12 +233,12 @@ func TestConfigScrollKeepsAcrossRefreshResetsOnClusterChange(t *testing.T) {
 		t.Fatal("pgdown did not scroll config viewport")
 	}
 	scrolled := d.View()
-	d.SetCluster(c, true)
+	d.SetItem(clusterItem{c}, true)
 	if d.View() != scrolled {
 		t.Fatal("refresh with same YAML must keep scroll")
 	}
 	c.Name = "other"
-	d.SetCluster(c, true)
+	d.SetItem(clusterItem{c}, true)
 	if !strings.Contains(d.View(), "other") || !strings.Contains(d.View(), "line: a") {
 		t.Fatalf("new cluster should start at top:\n%s", d.View())
 	}
@@ -245,13 +246,13 @@ func TestConfigScrollKeepsAcrossRefreshResetsOnClusterChange(t *testing.T) {
 
 func TestPlainYAMLHasNoEscapesWhenColorOff(t *testing.T) {
 	d := newDetail(false)
-	d.SetCluster(configCluster(), true)
+	d.SetItem(clusterItem{configCluster()}, true)
 	d.SetTab(tabConfig)
 	if strings.Contains(d.cfgOut, "\x1b") {
 		t.Fatalf("escapes in plain YAML: %q", d.cfgOut)
 	}
 	d2 := newDetail(true)
-	d2.SetCluster(configCluster(), true)
+	d2.SetItem(clusterItem{configCluster()}, true)
 	if !strings.Contains(d2.cfgOut, "\x1b[") {
 		t.Fatal("color on must highlight")
 	}
@@ -281,7 +282,7 @@ func TestLongLineIsOneRowClippedAtBoundary(t *testing.T) {
 	d.SetSize(30, 10)
 	c := configCluster()
 	c.Config.YAML = longYAML()
-	d.SetCluster(c, true)
+	d.SetItem(clusterItem{c}, true)
 	d.SetTab(tabConfig)
 	rows := rowsOf(d.View())
 	if len(rows) != 10 {
@@ -315,7 +316,7 @@ func TestLongLineColorIsCutCleanly(t *testing.T) {
 	d.SetSize(30, 10)
 	c := configCluster()
 	c.Config.YAML = longYAML()
-	d.SetCluster(c, true)
+	d.SetItem(clusterItem{c}, true)
 	d.SetTab(tabConfig)
 	rows := rowsOf(d.View())
 	if got := rowIndex(rows, "itema:"); got != 3 {
@@ -345,7 +346,7 @@ func TestLongNameAndHeaderStayOneRow(t *testing.T) {
 	c := configCluster()
 	c.Name = strings.Repeat("n", 50)
 	c.Config.VersionInfo = "2026-10-14T10:00:00Z/abcdef"
-	d.SetCluster(c, true)
+	d.SetItem(clusterItem{c}, true)
 	d.SetTab(tabConfig)
 	rows := rowsOf(d.View())
 	if len(rows) != 10 {
@@ -357,7 +358,7 @@ func TestLongNameAndHeaderStayOneRow(t *testing.T) {
 	if !strings.HasPrefix(ansi.Strip(rows[1]), "version_info: 2026") {
 		t.Fatalf("header row: %q", rows[1])
 	}
-	d.SetTab(tabEndpoints)
+	d.SetTab(tabOverview)
 	rows = rowsOf(d.View())
 	if len(rows) != 10 {
 		t.Fatalf("endpoints rows %d", len(rows))
@@ -374,7 +375,7 @@ func TestResizeRetruncatesWithoutRehighlight(t *testing.T) {
 	d.SetSize(30, 10)
 	c := configCluster()
 	c.Config.YAML = longYAML()
-	d.SetCluster(c, true)
+	d.SetItem(clusterItem{c}, true)
 	d.SetTab(tabConfig)
 	d.SetSize(60, 10)
 	rows := rowsOf(d.View())
@@ -393,17 +394,17 @@ func TestDisappearThenReappearResetsScroll(t *testing.T) {
 	for i := 0; i < 40; i++ {
 		c.Hosts = append(c.Hosts, snapshot.Host{Address: "10.0.1." + string(rune('a'+i%26)) + string(rune('a'+i/26)) + ":80"})
 	}
-	for _, tb := range []tab{tabEndpoints, tabConfig} {
+	for _, tb := range []tab{tabOverview, tabConfig} {
 		d := newDetail(false)
-		d.SetCluster(c, true)
+		d.SetItem(clusterItem{c}, true)
 		d.SetTab(tb)
 		top := d.View()
 		d.HandleKey(key("pgdown"))
 		if d.View() == top {
 			t.Fatalf("tab %d: did not scroll", tb)
 		}
-		d.SetCluster(snapshot.Cluster{}, false)
-		d.SetCluster(c, true)
+		d.SetItem(nil, false)
+		d.SetItem(clusterItem{c}, true)
 		if d.View() != top {
 			t.Fatalf("tab %d: scroll kept after disappear/reappear", tb)
 		}
@@ -422,7 +423,7 @@ func numberedConfig(t *testing.T, yaml string, h int) (detailPane, []string) {
 	d.SetSize(60, h)
 	c := configCluster()
 	c.Config.YAML = yaml
-	d.SetCluster(c, true)
+	d.SetItem(clusterItem{c}, true)
 	d.SetTab(tabConfig)
 	return d, rowsOf(d.View())
 }
@@ -475,14 +476,14 @@ func TestConfigNumbersAbsentForErrorsAndEmptyYAML(t *testing.T) {
 	d.SetSize(60, 8)
 	c := configCluster()
 	c.Config = snapshot.ConfigInfo{Err: "config unavailable: boom"}
-	d.SetCluster(c, true)
+	d.SetItem(clusterItem{c}, true)
 	d.SetTab(tabConfig)
 	v := d.View()
 	if !strings.Contains(v, "config unavailable: boom") || strings.Contains(v, "│") {
 		t.Fatalf("an error must not be numbered:\n%s", v)
 	}
 	c.Config = snapshot.ConfigInfo{}
-	d.SetCluster(c, true)
+	d.SetItem(clusterItem{c}, true)
 	if strings.Contains(d.View(), "│") {
 		t.Fatalf("empty YAML must not be numbered:\n%s", d.View())
 	}
@@ -492,12 +493,12 @@ func TestLineNumbersDoNotTriggerReHighlighting(t *testing.T) {
 	d := newDetailPane(true)
 	d.SetSize(60, 10)
 	c := configCluster()
-	d.SetCluster(c, true)
+	d.SetItem(clusterItem{c}, true)
 	d.SetTab(tabConfig)
 	before := d.highlights
 	d.SetSize(80, 12)
 	d.SetSize(60, 10)
-	d.SetCluster(c, true)
+	d.SetItem(clusterItem{c}, true)
 	if d.highlights != before {
 		t.Fatalf("resize/refresh re-ran chroma (%d -> %d)", before, d.highlights)
 	}

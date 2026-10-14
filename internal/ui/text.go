@@ -35,3 +35,18 @@ func ago(d time.Duration) string {
 		return fmt.Sprintf("%dh ago", int(d.Hours()))
 	}
 }
+
+// wrapLines word-wraps s to w cells and caps it at maxRows rows; when text is
+// cut the last row ends with an ellipsis. Existing newlines are kept.
+func wrapLines(s string, w, maxRows int) []string {
+	if w <= 0 || maxRows <= 0 || s == "" {
+		return nil
+	}
+	rows := strings.Split(ansi.Wrap(s, w, ""), "\n")
+	if len(rows) > maxRows {
+		rows = rows[:maxRows]
+		last := strings.TrimRight(ansi.Truncate(rows[maxRows-1], max(w-1, 1), ""), " ")
+		rows[maxRows-1] = last + "…"
+	}
+	return rows
+}

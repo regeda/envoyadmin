@@ -8,34 +8,35 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-
-	"github.com/regeda/txenvoy/internal/snapshot"
 )
 
 type tab int
 
 const (
-	tabEndpoints tab = iota
+	tabOverview tab = iota
 	tabConfig
 )
 
 type detailPane struct {
 	tab           tab
-	cluster       snapshot.Cluster
+	item          resourceItem
 	has           bool
+	emptyText     string
 	width, height int
-	scroll        int // endpoints tab
+	scroll        int // overview tab
 	vp            viewport.Model
 	color         bool
 	focused       bool
 
-	cfgName, cfgYAML, cfgOut string
-	highlights               int
+	cfgKey, cfgText, cfgOut string
+	highlights              int
 }
 
 func newDetailPane(color bool) detailPane {
-	return detailPane{color: color, vp: viewport.New(0, 0)}
+	return detailPane{color: color, vp: viewport.New(0, 0), emptyText: "nothing selected"}
 }
+
+func (d *detailPane) SetEmptyText(s string) { d.emptyText = s }
 
 // Layout: 1 tab line, then a body of height-1 rows. The Config body is 1 header
 // line plus the viewport.
@@ -52,31 +53,31 @@ func (d *detailPane) SetTab(t tab) { d.tab = t }
 // with a ▌ marker (a blank of the same width otherwise, so nothing shifts).
 func (d *detailPane) SetFocused(f bool) { d.focused = f }
 
-func (d *detailPane) SetCluster(c snapshot.Cluster, ok bool) {
+func (d *detailPane) SetItem(it resourceItem, ok bool) {
 	if !ok {
-		d.has, d.cluster = false, snapshot.Cluster{}
-		d.cfgName = "" // a reappearing cluster is treated as new
+		d.has, d.item = false, nil
+		d.cfgKey = "" // a reappearing item is treated as new
 		d.vp.GotoTop()
 		return
 	}
-	if !d.has || d.cluster.Name != c.Name {
+	if !d.has || d.item.Key() != it.Key() {
 		d.scroll = 0
 	}
-	d.cluster, d.has = c, true
-	d.scroll = min(d.scroll, maxEndpointScroll(c, d.height-1))
+	d.item, d.has = it, true
+	d.scroll = min(d.scroll, d.item.OverviewMaxScroll(d.width, d.height-1))
 	d.syncConfig()
 }
 
 func (d *detailPane) syncConfig() {
-	c := d.cluster
-	text, _ := c.Config.Render()
-	if d.cfgName != c.Name || d.cfgYAML != text {
-		nameChanged := d.cfgName != c.Name
+	text, _ := d.item.Config().Render()
+	key := d.item.Key()
+	if d.cfgKey != key || d.cfgText != text {
+		keyChanged := d.cfgKey != key
 		d.cfgOut = highlightYAML(text, d.color)
-		d.cfgName, d.cfgYAML = c.Name, text
+		d.cfgKey, d.cfgText = key, text
 		d.highlights++
 		d.applyContent()
-		if nameChanged {
+		if keyChanged {
 			d.vp.GotoTop()
 		}
 		return
@@ -109,11 +110,14 @@ func clipLines(s string, w int) string {
 	return strings.Join(lines, "\n")
 }
 
-// applyContent feeds the viewport the (cached) highlighted YAML or the error,
+// applyContent feeds the viewport the (cached) highlighted YAML or the problem,
 // clipped to the current width.
 func (d *detailPane) applyContent() {
+	if !d.has {
+		return
+	}
 	w := max(d.width, 1)
-	if _, problem := d.cluster.Config.Render(); problem != "" {
+	if _, problem := d.item.Config().Render(); problem != "" {
 		d.vp.SetContent(clipLines(dimStyle.Render(problem), w))
 		return
 	}
@@ -128,7 +132,7 @@ func (d *detailPane) HandleKey(k tea.KeyMsg) {
 		d.vp, _ = d.vp.Update(k)
 		return
 	}
-	maxS := maxEndpointScroll(d.cluster, d.height-1)
+	maxS := d.item.OverviewMaxScroll(d.width, d.height-1)
 	switch k.String() {
 	case "up", "k":
 		d.scroll--
@@ -157,12 +161,12 @@ func (d detailPane) tabLine() string {
 	if d.focused {
 		marker = logoStyle.Render("▌") + " "
 	}
-	return marker + boldStyle.Render(d.cluster.Name) + "  ·  " +
-		label("Endpoints", d.tab == tabEndpoints) + " " + dimStyle.Render("|") + " " + label("Config", d.tab == tabConfig)
+	return marker + boldStyle.Render(d.item.Title()) + "  ·  " +
+		label(d.item.OverviewName(), d.tab == tabOverview) + " " + dimStyle.Render("|") + " " + label("Config", d.tab == tabConfig)
 }
 
 func (d detailPane) configHeader() string {
-	c := d.cluster.Config
+	c := d.item.Config()
 	var parts []string
 	if c.Static {
 		parts = append(parts, "static (no xDS version)")
@@ -180,11 +184,11 @@ func (d detailPane) View() string {
 	var body string
 	switch {
 	case !d.has:
-		body = dimStyle.Render("no cluster selected")
+		body = dimStyle.Render(d.emptyText)
 	case d.tab == tabConfig:
 		body = trunc(d.tabLine(), w) + "\n" + trunc(d.configHeader(), w) + "\n" + d.vp.View()
 	default:
-		body = trunc(d.tabLine(), w) + "\n" + renderEndpoints(d.cluster, d.width, d.height-1, d.scroll)
+		body = trunc(d.tabLine(), w) + "\n" + d.item.Overview(d.width, d.height-1, d.scroll)
 	}
 	// No Width(): it would wrap. Every line is already clipped to w.
 	return lipgloss.NewStyle().MaxWidth(w).Height(h).MaxHeight(h).Render(body)

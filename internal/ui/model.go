@@ -83,6 +83,8 @@ func New(o Options) Model {
 	}
 	m := Model{opts: o, inflight: true, state: stateConnecting, list: newListPane(), detail: newDetailPane(o.Color)}
 	m.list.SetWaiting(true)
+	m.list.SetEmptyText("no clusters")
+	m.detail.SetEmptyText("no cluster selected")
 	return m
 }
 
@@ -121,8 +123,8 @@ func (m *Model) layout() {
 }
 
 func (m *Model) syncDetail() {
-	c, ok := m.list.Selected()
-	m.detail.SetCluster(c, ok)
+	it, ok := m.list.Selected()
+	m.detail.SetItem(it, ok)
 }
 
 func (m Model) bannerVisible() bool {
@@ -159,7 +161,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.lastOK = m.opts.Clock()
 		}
 		m.list.SetWaiting(false)
-		m.list.SetClusters(msg.snap.Clusters)
+		m.list.SetItems(clusterItems(msg.snap.Clusters))
 		m.syncDetail()
 		return m, nil
 
@@ -210,7 +212,7 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "c":
 		m.detail.SetTab(tabConfig)
 	case "e":
-		m.detail.SetTab(tabEndpoints)
+		m.detail.SetTab(tabOverview)
 	case "esc":
 		if m.focus == focusDetail {
 			m.setFocus(focusList)
