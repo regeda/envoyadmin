@@ -89,7 +89,7 @@ func TestTickDoesNotOverlapFetches(t *testing.T) {
 		t.Fatalf("calls=%d", calls)
 	}
 	m = send(m, snapshotMsg{snap: snap()}) // fetch lands
-	m, cmd = sendCmd(m, tickMsg{})
+	_, cmd = sendCmd(m, tickMsg{})
 	var fetched bool
 	for _, msg := range run(cmd) {
 		if _, ok := msg.(snapshotMsg); ok {
@@ -99,7 +99,6 @@ func TestTickDoesNotOverlapFetches(t *testing.T) {
 	if !fetched || calls != 1 {
 		t.Fatalf("fetched=%v calls=%d", fetched, calls)
 	}
-	_ = m
 }
 
 func TestConnectionStateMachine(t *testing.T) {
@@ -351,9 +350,45 @@ func TestFirstFetchFailureShowsBannerWithoutSnapshot(t *testing.T) {
 	m := sized(New(testOpts(nil)), 100, 24)
 	m = send(m, snapshotMsg{err: errors.New("dial refused")})
 	v := m.View()
-	for _, want := range []string{"dial refused", "never connected", "no clusters"} {
+	for _, want := range []string{"dial refused", "never connected", "waiting for Envoy…"} {
 		if !strings.Contains(v, want) {
 			t.Fatalf("missing %q:\n%s", want, v)
 		}
+	}
+	if strings.Contains(v, "no clusters") {
+		t.Fatalf("list must keep waiting until the first success:\n%s", v)
+	}
+}
+
+func TestHelpHintVisibleAtMinimumWidth(t *testing.T) {
+	m := sized(New(testOpts(nil)), 80, 24)
+	m = send(m, snapshotMsg{snap: snap(cl("api", 1, 1))})
+	lines := strings.Split(m.View(), "\n")
+	status := ansi.Strip(lines[len(lines)-1])
+	for _, want := range []string{"? help", "q quit"} {
+		if !strings.Contains(status, want) {
+			t.Fatalf("missing %q in status %q", want, status)
+		}
+	}
+}
+
+func TestRefreshAfterError(t *testing.T) {
+	m := New(testOpts(func(context.Context) (snapshot.Snapshot, error) { return snap(), nil }))
+	m = send(m, snapshotMsg{err: errors.New("boom")})
+	m, cmd := sendCmd(m, key("r"))
+	if cmd == nil || !m.inflight {
+		t.Fatalf("r after an error must fetch: cmd=%v inflight=%v", cmd != nil, m.inflight)
+	}
+}
+
+func TestZeroFetchedAtFallsBackToClock(t *testing.T) {
+	m := sized(New(testOpts(nil)), 120, 30)
+	m = send(m, snapshotMsg{snap: snapshot.Snapshot{Clusters: []snapshot.Cluster{cl("api", 1, 1)}}})
+	if v := m.View(); !strings.Contains(v, "updated 0s ago") {
+		t.Fatalf("age must be measured from receipt:\n%s", v)
+	}
+	m = send(m, snapshotMsg{err: errors.New("boom")})
+	if strings.Contains(m.bannerText(), "never connected") {
+		t.Fatal("a failure after a success must not say never connected")
 	}
 }

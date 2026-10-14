@@ -147,13 +147,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.err = msg.err
 			m.state = stateDisconnected
-			m.list.SetWaiting(false) // the banner explains; stop saying "waiting"
 			return m, nil
 		}
 		m.err, m.dismissed = nil, ""
 		m.state = stateConnected
 		m.snap, m.hasSnap = msg.snap, true
 		m.lastOK = msg.snap.FetchedAt
+		if m.lastOK.IsZero() {
+			m.lastOK = m.opts.Clock()
+		}
 		m.list.SetWaiting(false)
 		m.list.SetClusters(msg.snap.Clusters)
 		m.syncDetail()
@@ -251,7 +253,7 @@ func (m Model) statusLine() string {
 	if m.inflight {
 		left += " ↻"
 	}
-	right := "/ filter · c config · e endpoints · r refresh · ? help · q quit "
+	right := "? help · q quit · / filter · c config · e endpoints · r refresh "
 	if m.help {
 		right = "↑↓/jk move · / filter · tab focus · c config · e endpoints · r refresh · x dismiss · q quit "
 	}
