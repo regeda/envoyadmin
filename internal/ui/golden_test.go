@@ -38,11 +38,10 @@ func fetchSnap(t *testing.T, sc demo.Scenario) snapshot.Snapshot {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := snapshot.Fetch(context.Background(), c)
+	s, err := snapshot.FetchWithClock(context.Background(), c, func() time.Time { return fixedNow })
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.FetchedAt = fixedNow
 	return s
 }
 

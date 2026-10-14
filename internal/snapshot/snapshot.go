@@ -130,6 +130,12 @@ func (s Snapshot) UnhealthyClusters() int {
 // Only a /clusters failure is fatal; missing config or server info degrade the
 // snapshot instead.
 func Fetch(ctx context.Context, c admin.Client) (Snapshot, error) {
+	return FetchWithClock(ctx, c, time.Now)
+}
+
+// FetchWithClock is Fetch with an injectable clock: FetchedAt, the days left
+// of a certificate and the secrets' expired state are all computed from now.
+func FetchWithClock(ctx context.Context, c admin.Client, now func() time.Time) (Snapshot, error) {
 	cl, err := c.Clusters(ctx)
 	if err != nil {
 		return Snapshot{}, err
@@ -157,7 +163,7 @@ func Fetch(ctx context.Context, c admin.Client) (Snapshot, error) {
 		cfgByName[cc.Name] = cc
 	}
 
-	out := Snapshot{FetchedAt: time.Now(), Version: parseVersion(info.GetVersion())}
+	out := Snapshot{FetchedAt: now(), Version: parseVersion(info.GetVersion())}
 	for _, st := range cl.GetClusterStatuses() {
 		cluster := Cluster{Name: st.GetName(), Type: "?"}
 		for _, hs := range st.GetHostStatuses() {

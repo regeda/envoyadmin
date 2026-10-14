@@ -84,6 +84,48 @@ func TestSecretsFailureDegradesInline(t *testing.T) {
 	}
 }
 
+func TestFetchWithClockDrivesCertificateAge(t *testing.T) {
+	srv := httptest.NewServer(demo.NewServer(demo.Degraded()))
+	t.Cleanup(srv.Close)
+	c, err := admin.NewHTTP(srv.URL, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverCert := func(now time.Time) *CertInfo {
+		t.Helper()
+		s, err := FetchWithClock(context.Background(), c, func() time.Time { return now })
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !s.FetchedAt.Equal(now) {
+			t.Fatalf("FetchedAt = %v, want %v", s.FetchedAt, now)
+		}
+		for _, sec := range s.Secrets {
+			if sec.Name == "server-cert" && sec.State == SecretActive {
+				return sec.Cert
+			}
+		}
+		t.Fatal("no active server-cert")
+		return nil
+	}
+	early, late := serverCert(secNow), serverCert(secNow.AddDate(0, 0, 100))
+	if early.DaysLeft != 62 || early.Expired(secNow) {
+		t.Errorf("at the epoch: %+v", early)
+	}
+	if late.DaysLeft >= 0 || !late.Expired(secNow.AddDate(0, 0, 100)) {
+		t.Errorf("100 days later it must be expired: %+v", late)
+	}
+	if again := serverCert(secNow); again.DaysLeft != early.DaysLeft {
+		t.Errorf("the same clock must give the same answer: %d vs %d", again.DaysLeft, early.DaysLeft)
+	}
+}
+
+func TestSecretStatusStringOutOfRange(t *testing.T) {
+	if got := SecretStatus(99).String(); got != "unknown" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestFetchSecretsFromDemo(t *testing.T) {
 	srv := httptest.NewServer(demo.NewServer(demo.Degraded()))
 	t.Cleanup(srv.Close)
@@ -91,7 +133,7 @@ func TestFetchSecretsFromDemo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := Fetch(context.Background(), c)
+	s, err := FetchWithClock(context.Background(), c, func() time.Time { return secNow })
 	if err != nil {
 		t.Fatal(err)
 	}

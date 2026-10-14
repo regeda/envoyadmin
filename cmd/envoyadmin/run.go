@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -19,7 +20,9 @@ func run(ctx context.Context, cfg config.Config) error {
 	defer cancel()
 
 	if cfg.Demo {
-		srv := demo.NewServer(demo.Degraded())
+		sc := demo.Degraded()
+		sc.Updated = time.Now().UTC() // certificate expiries derive from Updated, so the demo never ages out
+		srv := demo.NewServer(sc)
 		url, stop, err := srv.Start()
 		if err != nil {
 			return err
