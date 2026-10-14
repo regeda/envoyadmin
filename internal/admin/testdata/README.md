@@ -20,8 +20,9 @@ Genuine captures from `envoyproxy/envoy:v1.31-latest`, version string
 - real-listeners-error.json    GET /config_dump?resource=dynamic_listeners after a rejected LDS update
 
 `capture/bootstrap.yaml` and `capture/lds.yaml` reproduce the first two: mount them
-at `/etc/envoy/envoy.yaml` and `/etc/envoy/lds.yaml` and run Envoy with `-c`. The
-error capture starts from that state and then atomically replaces the LDS file
+at `/etc/envoy/envoy.yaml` and `/etc/envoy/lds.yaml` and run Envoy with `-c`. `lds.yaml` is version "7" and `lds-bad.yaml` is version "8"; the rejected version
+never appears in the dump. The error capture starts from the fresh lds.yaml state
+(no intermediate update) and then atomically replaces the LDS file
 (`mv` inside the container, from a mounted directory; host-side edits are not seen
 through the Docker bind mount) with `capture/lds-bad.yaml`, a tcp_proxy with no
 `cluster`, which Envoy rejects with a proto constraint error. An unknown filter
@@ -30,3 +31,15 @@ name with a valid `typed_config` is accepted, so it does not produce an error.
 A draining state was also provoked (LDS update to an empty resource list) but is not
 saved. Warming was not provoked. Warming and draining fixtures are hand-written
 (see the demo scenario and Task 3 tests).
+
+### Listener shape notes
+
+- A rejected update yields two elements: the old listener (name, active_state and a
+  sibling error_state) and a nameless twin holding only error_state; its name is in
+  `error_state.failed_configuration.name`.
+- `failed_configuration` is a bare Listener (with its own `@type`), not `{listener: ...}`.
+- The error timestamp is `last_update_attempt` and may be absent; `details` ends with a newline.
+- Static elements have no element-level name (it is in `listener.name`).
+- `port_value`, `destination_port` and `prefix_len` are JSON numbers.
+- transport_socket was not captured (no TLS in the capture).
+- Warming was not provoked; draining was provoked but not saved.

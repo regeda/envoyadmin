@@ -18,7 +18,7 @@
       {
        "filters": [
         {
-         "name": "envoy.filters.network.does_not_exist",
+         "name": "envoy.filters.network.tcp_proxy",
          "typed_config": {
           "@type": "type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy",
           "stat_prefix": "dynamic_one",
@@ -29,7 +29,7 @@
       }
      ]
     },
-    "last_updated": "2026-10-14T02:48:19.499Z"
+    "last_updated": "2026-10-14T02:51:46.491Z"
    },
    "error_state": {
     "failed_configuration": {
@@ -55,7 +55,7 @@
       }
      ]
     },
-    "last_update_attempt": "2026-10-14T02:48:40.320Z",
+    "last_update_attempt": "2026-10-14T02:51:51.560Z",
     "details": "Proto constraint validation failed (field: \"cluster_specifier\", reason: is required): stat_prefix: \"dynamic_one\"\n"
    }
   },
