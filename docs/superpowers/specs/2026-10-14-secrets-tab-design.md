@@ -105,11 +105,30 @@ certificate details are unavailable.
 - A test that renders a secret fixture containing a sentinel private key and
   asserts that the sentinel appears nowhere in the output.
 
-### Open item to verify during implementation
+### Open item (settled, see the amendment below)
 
 How `/certs` entries map back to SDS secret names is not established. The real
 capture settles it. If no reliable join exists, certificate facts are shown only
 where they match a secret, and this spec is updated to say so.
+
+## Amendment (after the Task 2 capture)
+
+A genuine capture from Envoy 1.31.10 settled the open item: `/certs` reports an
+SDS certificate with `path` `"<inline>"`, so its entries cannot be joined to a
+secret by name (and two secrets sharing one certificate cannot be told apart).
+The secrets dump, however, carries the public certificate PEM (only the private
+key is `[redacted]`). The design therefore changes in these ways:
+
+- There is no `Certs` client method, no `/certs` request and no `CertsErr`.
+- The decoder reads serial, SANs and expiry from the first `CERTIFICATE` block of
+  the secret's inline certificate chain (or trusted CA) and drops the PEM; the
+  private key is never read. A file-based or unreadable certificate yields no
+  certificate facts, and the secret is still listed.
+- Days left are computed from the expiry at fetch time.
+- The demo Envoy emits real generated certificates in its secrets dump instead of
+  serving `/certs`.
+
+"Secret content is never kept" still holds: only the facts survive decoding.
 
 ## Options considered and rejected
 

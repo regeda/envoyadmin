@@ -4,7 +4,7 @@
 
 **Goal:** Add a third **Secrets** tab to envoyadmin listing every secret Envoy has loaded with name, version, state, kind, certificate facts and the clusters and listeners that use it, and never any secret content.
 
-**Architecture:** `internal/admin` gains `SecretConfigs` (config_dump secrets) and `Certs` (`/certs`) decoders that drop secret bodies at decode time. `snapshot.Fetch` fetches both in parallel with the existing calls, joins certificate facts onto secrets, and derives "used by" by walking the cluster and listener JSON it already holds. `internal/ui` adds a third `resourceKind` with its own item type, and a "Secrets" row in the cluster and listener Overviews.
+**Architecture:** `internal/admin` gains a `SecretConfigs` (config_dump secrets) decoder that drops secret bodies at decode time and keeps only certificate facts read from the public certificate (Envoy's `/certs` cannot be joined to SDS secrets, see Task 2). `snapshot.Fetch` fetches it in parallel with the existing calls and derives "used by" by walking the cluster and listener JSON it already holds. `internal/ui` adds a third `resourceKind` with its own item type, and a "Secrets" row in the cluster and listener Overviews.
 
 **Tech Stack:** Go, bubbletea/lipgloss, teatest golden files, `make test` (`go test -race ./...`).
 
@@ -14,7 +14,7 @@
 
 - Secret content is never fetched into the snapshot, stored or rendered: only name, `version_info`, `last_updated`, state, kind and certificate facts survive decoding.
 - A failed secrets dump never raises the global error banner; the tab shows an inline "secrets unavailable: <reason>" message and reads `Secrets (!)`.
-- If only `/certs` fails, secrets are still listed and an inline note says "certificate details unavailable: <reason>".
+- A secret whose certificate cannot be read (file-based, garbage, no certificate) is still listed, without certificate facts.
 - "Used by" is display only: no navigation between tabs.
 - No Config tab content for secrets: `c` shows "secret content is never displayed".
 - Commit messages follow Conventional Commits (`feat(admin): ...`) and end with `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`.
@@ -23,7 +23,7 @@
 ## Review Focus
 
 - A secret whose body holds a private key: the key text never appears in any rendered view (Task 7 sentinel test).
-- `/certs` returns an error or an entry matching no secret: the secret is listed without certificate facts (Tasks 3 and 4).
+- A certificate that cannot be parsed (file-based, garbage, not a CERTIFICATE block): the secret is listed without certificate facts (Task 3).
 - A cluster or listener references a secret Envoy has not loaded: marked "not loaded", but not when the secrets dump itself failed (Task 5).
 - A cluster or listener with huge JSON and no SDS references: no generic JSON walk (Task 5 pre-check).
 - Terminal width at the 80-column minimum: rows never wrap and never exceed the pane (Task 7).
@@ -34,15 +34,15 @@
 ## File Structure
 
 - Create `internal/admin/secrets.go`: `SecretConfig`, `SecretState`, `decodeSecretConfigs`.
-- Create `internal/admin/certs.go`: `Cert`, `decodeCerts`.
+- Create `internal/admin/certfacts.go`: `CertFacts`, `certFacts` (reads the public certificate of a secret).
 - Modify `internal/admin/client.go`: two interface methods, two `HTTP` methods.
-- Create `internal/snapshot/secret.go`: `Secret`, `SecretStatus`, `CertInfo`, `Ref`, `SecretUse`, `secretsFrom`, `certForSecret`, `secretRefs`, `linkSecrets`, sorting.
-- Modify `internal/snapshot/snapshot.go`: `Cluster.Secrets`, `Snapshot.Secrets/SecretsErr/CertsErr`, parallel fetch, `SecretsNeedAttention`.
+- Create `internal/snapshot/secret.go`: `Secret`, `SecretStatus`, `CertInfo`, `Ref`, `SecretUse`, `secretsFrom`, `secretRefs`, `linkSecrets`, sorting.
+- Modify `internal/snapshot/snapshot.go`: `Cluster.Secrets`, `Snapshot.Secrets/SecretsErr`, parallel fetch, `SecretsNeedAttention`.
 - Modify `internal/snapshot/listener.go`: `Listener.Secrets`.
 - Create `internal/ui/secret_item.go`: `secretItem` (row, overview, config note).
 - Modify `internal/ui/view.go`: `kindSecrets` and its `resource`.
 - Modify `internal/ui/cluster_item.go`, `internal/ui/endpoints.go`, `internal/ui/listener_item.go`: "Secrets" rows.
-- Modify `internal/demo/scenario.go`, `internal/demo/server.go`: demo secrets, `/certs`, SDS references.
+- Modify `internal/demo/scenario.go`, `internal/demo/server.go`: demo secrets with real certificates, SDS references.
 - Modify `README.md`: document the tab.
 - Tests next to each file; capture fixtures under `internal/admin/testdata/`.
 
@@ -454,223 +454,147 @@ git commit -m "test(admin): capture secrets and certs from a real Envoy 1.31.10"
 
 ---
 
-### Task 3: Decode certificates from `/certs`
+### Task 3: Certificate facts from the secret's public certificate
+
+> **Amended after Task 2.** The real capture showed that `/certs` names an SDS certificate `"<inline>"`, so it cannot be joined to a secret by name. The secrets dump itself carries the public certificate PEM (only the private key is redacted), so the decoder reads serial, SANs and expiry from it. There is no `/certs` call anywhere in this feature.
 
 **Files:**
-- Create: `internal/admin/certs.go`
-- Create: `internal/admin/certs_test.go`
-- Modify: `internal/admin/client.go`
+- Create: `internal/admin/certfacts.go`
+- Create: `internal/admin/certfacts_test.go`
+- Modify: `internal/admin/secrets.go` (`SecretConfig` gains `Cert *CertFacts`; `secretConfig` fills it)
+- Modify: `internal/admin/testdata/README.md` (one sentence: `real-certs.json` is kept as evidence of why `/certs` is not used)
 
 **Interfaces:**
 - Produces:
-  - `type Cert struct { Path, Serial string; SANs []string; NotAfter time.Time; DaysLeft int64; CA bool }`.
-  - `Client.Certs(ctx context.Context) ([]Cert, error)`.
+  - `type CertFacts struct { Serial string; SANs []string; NotAfter time.Time }`.
+  - `SecretConfig.Cert *CertFacts` (nil when the secret has no readable inline certificate).
+  - `func certFacts(secret map[string]json.RawMessage) *CertFacts`.
 
-- [ ] **Step 1: Write the failing test**
+Rules for `certFacts` (the decoder never reads a private key and never keeps a PEM or any other body):
+- Look at `secret["tls_certificate"].certificate_chain` for a TLS certificate and at `secret["validation_context"].trusted_ca` for a validation context.
+- A `DataSource` holds `inline_string` (PEM text) or `inline_bytes` (base64 of the PEM in Envoy's JSON). Anything else (`filename`, `environment_variable`, empty) yields nil.
+- Parse the first `CERTIFICATE` PEM block with `x509.ParseCertificate` (the leaf of a chain, the first CA of a bundle). Any failure yields nil, never an error.
+- `Serial` is `cert.SerialNumber.Text(16)` (lower-case hex, as `/certs` printed it). `SANs` are `DNSNames`, `URIs`, `IPAddresses` and `EmailAddresses`, in that order. `NotAfter` is `cert.NotAfter.UTC()`.
 
-Create `internal/admin/certs_test.go`. Use the real capture for the primary assertion, using the identification rule recorded in Task 2's README note (replace `PATH` below with the captured `path` value for `server-cert`):
+- [ ] **Step 1: Write the failing tests**
 
-```go
-package admin
+Create `internal/admin/certfacts_test.go` with these cases (build certificates in the test with `crypto/x509`, an ECDSA P-256 key and `x509.CreateCertificate`; a helper `testPEM(t, serial int64, dns []string, notAfter time.Time) string` is enough):
+1. Real capture: decode `real-secrets-dynamic.json` through `serveSecrets` and `SecretConfigs`; `server-cert` has `Cert.Serial == "4e77ed433ec7c87a1736f90cbaf85b985c25d9eb"`, `Cert.SANs == []string{"capture.example.com"}` and `Cert.NotAfter` equal to `2036-10-11T11:52:18Z` (the values in `real-certs.json`). The static capture's `bootstrap-cert` also has a `Cert`.
+2. `inline_string` and `inline_bytes` (base64) forms of the same generated certificate give identical facts; serial and expiry match what the test put in.
+3. A `validation_context.trusted_ca` bundle of two certificates yields the first one.
+4. `filename`, garbage text, an empty data source, a PEM block of another type and a chain whose first block is not a certificate all give `nil`, and the secret is still returned by `SecretConfigs`.
+5. A secret whose `private_key` holds the text `SENTINEL-PRIVATE-KEY` and a valid certificate: `Cert` is set, and a recursive reflection walk over the returned `[]SecretConfig` (fields of every struct, slice and string) finds neither `SENTINEL`, `BEGIN CERTIFICATE` nor `PRIVATE KEY` in any string.
+6. Tighten Task 2's capture test: `TestRealCaptureSecretConfigs` also asserts, with the same reflection walk, that no returned string contains `BEGIN CERTIFICATE` or the fragment `MIIDGjCC`.
 
-import (
-	"context"
-	"net/http"
-	"testing"
-	"time"
-)
+- [ ] **Step 2: Run the tests to verify they fail**
 
-const handCerts = `{"certificates":[
- {"ca_cert":[{"path":"mesh-ca","serial_number":"01","days_until_expiration":"30",
-   "valid_from":"2026-01-01T00:00:00Z","expiration_time":"2026-11-13T00:00:00Z"}],
-  "cert_chain":[{"path":"server-cert","serial_number":"0a1b","days_until_expiration":"7",
-   "subject_alt_names":[{"dns":"a.example.com"},{"uri":"spiffe://x/y"},{"ip_address":"10.0.0.1"}],
-   "valid_from":"2026-01-01T00:00:00Z","expiration_time":"2026-10-21T00:00:00Z"}]},
- {"cert_chain":"garbage"}
-]}`
-
-func serveCerts(t *testing.T, body string, status int) *HTTP {
-	t.Helper()
-	return newClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/certs" {
-			http.NotFound(w, r)
-			return
-		}
-		if status != 0 {
-			http.Error(w, "boom", status)
-			return
-		}
-		_, _ = w.Write([]byte(body))
-	}), time.Second)
-}
-
-func TestCertsDecodesChainAndCA(t *testing.T) {
-	got, err := serveCerts(t, handCerts, 0).Certs(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 2 {
-		t.Fatalf("want 2 certs (malformed entry skipped), got %+v", got)
-	}
-	var leaf, ca Cert
-	for _, c := range got {
-		if c.CA {
-			ca = c
-		} else {
-			leaf = c
-		}
-	}
-	if leaf.Path != "server-cert" || leaf.Serial != "0a1b" || leaf.DaysLeft != 7 ||
-		leaf.NotAfter.IsZero() || len(leaf.SANs) != 3 || leaf.SANs[0] != "a.example.com" || leaf.SANs[1] != "spiffe://x/y" {
-		t.Fatalf("leaf: %+v", leaf)
-	}
-	if ca.Path != "mesh-ca" || !ca.CA || ca.DaysLeft != 30 {
-		t.Fatalf("ca: %+v", ca)
-	}
-}
-
-func TestCertsHTTPError(t *testing.T) {
-	if _, err := serveCerts(t, "", http.StatusInternalServerError).Certs(context.Background()); err == nil {
-		t.Fatal("want an error")
-	}
-}
-
-func TestRealCaptureCerts(t *testing.T) {
-	got, err := serveCerts(t, string(capture(t, "real-certs.json")), 0).Certs(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	var found bool
-	for _, c := range got {
-		if c.Path == "PATH" && c.Serial != "" && !c.NotAfter.IsZero() {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("no cert identified as the SDS secret in %+v", got)
-	}
-}
-```
-
-- [ ] **Step 2: Run the test to verify it fails**
-
-Run: `go test ./internal/admin/ -run Cert -v`
-Expected: FAIL to compile (`Cert`, `Certs` undefined).
+Run: `go test ./internal/admin/ -run 'CertFacts|RealCaptureSecretConfigs' -v`
+Expected: FAIL to compile (`CertFacts`, `SecretConfig.Cert` undefined).
 
 - [ ] **Step 3: Write the minimal implementation**
 
-Create `internal/admin/certs.go`:
+Create `internal/admin/certfacts.go`:
 
 ```go
 package admin
 
 import (
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
-	"strconv"
+	"encoding/pem"
 	"time"
 )
 
-// Cert is one certificate of /certs: facts only, never the certificate body.
-type Cert struct {
-	Path, Serial string
-	SANs         []string
-	NotAfter     time.Time
-	DaysLeft     int64
-	CA           bool // from ca_cert[] rather than cert_chain[]
+// CertFacts are the facts of a secret's public certificate. There is no field
+// for the certificate body, and the private key is never read.
+type CertFacts struct {
+	Serial   string
+	SANs     []string
+	NotAfter time.Time
 }
 
-type rawCert struct {
-	Path     string `json:"path"`
-	Serial   string `json:"serial_number"`
-	Days     json.RawMessage `json:"days_until_expiration"`
-	Expires  string `json:"expiration_time"`
-	SANs     []struct {
-		DNS string `json:"dns"`
-		URI string `json:"uri"`
-		IP  string `json:"ip_address"`
-	} `json:"subject_alt_names"`
+type dataSource struct {
+	InlineString string `json:"inline_string"`
+	InlineBytes  string `json:"inline_bytes"` // base64 in Envoy's JSON
 }
 
-func (r rawCert) cert(ca bool) Cert {
-	c := Cert{Path: r.Path, Serial: r.Serial, NotAfter: parseTime(r.Expires), CA: ca}
-	var s string
-	if json.Unmarshal(r.Days, &s) == nil {
-		c.DaysLeft, _ = strconv.ParseInt(s, 10, 64)
-	} else {
-		_ = json.Unmarshal(r.Days, &c.DaysLeft) // proto3 JSON may send a number
-	}
-	for _, san := range r.SANs {
-		for _, v := range []string{san.DNS, san.URI, san.IP} {
-			if v != "" {
-				c.SANs = append(c.SANs, v)
-			}
+func (d dataSource) pem() []byte {
+	switch {
+	case d.InlineString != "":
+		return []byte(d.InlineString)
+	case d.InlineBytes != "":
+		if b, err := base64.StdEncoding.DecodeString(d.InlineBytes); err == nil {
+			return b
 		}
 	}
-	return c
+	return nil
 }
 
-// decodeCerts reads /certs as raw JSON. A malformed certificate or group is
-// skipped, never fatal.
-func decodeCerts(body []byte) ([]Cert, error) {
-	var doc struct {
-		Certificates []json.RawMessage `json:"certificates"`
-	}
-	if err := json.Unmarshal(body, &doc); err != nil {
-		return nil, err
-	}
-	var out []Cert
-	for _, g := range doc.Certificates {
-		var group struct {
-			CACert    []rawCert `json:"ca_cert"`
-			CertChain []rawCert `json:"cert_chain"`
+// certFacts reads the first certificate of a tls_certificate chain or a
+// validation_context trusted CA. Anything unreadable yields nil.
+func certFacts(secret map[string]json.RawMessage) *CertFacts {
+	var src dataSource
+	switch {
+	case secret["tls_certificate"] != nil:
+		var tc struct {
+			Chain dataSource `json:"certificate_chain"`
 		}
-		if json.Unmarshal(g, &group) != nil {
+		_ = json.Unmarshal(secret["tls_certificate"], &tc)
+		src = tc.Chain
+	case secret["validation_context"] != nil:
+		var vc struct {
+			CA dataSource `json:"trusted_ca"`
+		}
+		_ = json.Unmarshal(secret["validation_context"], &vc)
+		src = vc.CA
+	}
+	rest := src.pem()
+	for len(rest) > 0 {
+		var block *pem.Block
+		block, rest = pem.Decode(rest)
+		if block == nil {
+			return nil
+		}
+		if block.Type != "CERTIFICATE" {
 			continue
 		}
-		for _, r := range group.CertChain {
-			out = append(out, r.cert(false))
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return nil
 		}
-		for _, r := range group.CACert {
-			out = append(out, r.cert(true))
+		f := &CertFacts{Serial: cert.SerialNumber.Text(16), NotAfter: cert.NotAfter.UTC()}
+		f.SANs = append(f.SANs, cert.DNSNames...)
+		for _, u := range cert.URIs {
+			f.SANs = append(f.SANs, u.String())
 		}
+		for _, ip := range cert.IPAddresses {
+			f.SANs = append(f.SANs, ip.String())
+		}
+		f.SANs = append(f.SANs, cert.EmailAddresses...)
+		return f
 	}
-	return out, nil
+	return nil
 }
 ```
 
-Run `gofmt -w internal/admin/certs.go`. Modify `client.go`: add `Certs(ctx context.Context) ([]Cert, error)` to the interface and
-
-```go
-func (h *HTTP) Certs(ctx context.Context) ([]Cert, error) {
-	body, err := h.get(ctx, "/certs", nil)
-	if err != nil {
-		return nil, err
-	}
-	certs, err := decodeCerts(body)
-	if err != nil {
-		return nil, fmt.Errorf("GET /certs: decode: %w", err)
-	}
-	return certs, nil
-}
-```
-
-If the real capture shows a different field layout from the hand-written one (for example `days_until_expiration` as a number, or SANs under a different key), adjust `rawCert` until `TestRealCaptureCerts` passes and keep `TestCertsDecodesChainAndCA` green by updating `handCerts` to the real shape.
+Modify `internal/admin/secrets.go`: add `Cert *CertFacts` to `SecretConfig` and set `Cert: certFacts(r.Secret)` in `secretConfig`. Remember the body never leaves this function.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `go test ./internal/admin/ -v && go build ./...`
+Run: `go test ./internal/admin/ -v && go build ./... && go vet ./...`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add internal/admin
-git commit -m "feat(admin): decode certificate facts from /certs"
+git commit -m "feat(admin): read certificate facts from the secret's public certificate"
 ```
 
 ---
 
-### Task 4: Snapshot secrets and the certificate join
+### Task 4: Snapshot secrets and certificate facts
 
 **Files:**
 - Create: `internal/snapshot/secret.go`
@@ -678,18 +602,18 @@ git commit -m "feat(admin): decode certificate facts from /certs"
 - Modify: `internal/snapshot/snapshot.go`
 
 **Interfaces:**
-- Consumes: `admin.SecretConfig`, `admin.Cert`, `Client.SecretConfigs`, `Client.Certs` (Tasks 1 and 3).
+- Consumes: `admin.SecretConfig`, `admin.CertFacts`, `Client.SecretConfigs` (Tasks 1 and 3).
 - Produces:
   - `type SecretStatus int` with `SecretActive`, `SecretWarming`, `SecretStatic`; `String()`.
   - `type CertInfo struct { Serial string; SANs []string; NotAfter time.Time; DaysLeft int64 }`; `func (c CertInfo) Expired(now time.Time) bool`.
   - `type Ref struct{ Kind, Name string }` (`Kind` is `"cluster"` or `"listener"`).
   - `type Secret struct { Name, Kind, VersionInfo string; State SecretStatus; LastUpdated time.Time; Cert *CertInfo; UsedBy []Ref }`.
-  - `Snapshot.Secrets []Secret`, `Snapshot.SecretsErr string`, `Snapshot.CertsErr string`.
+  - `type SecretUse struct { Name string; Loaded bool }`.
+  - `Snapshot.Secrets []Secret`, `Snapshot.SecretsErr string`.
   - `func (s Snapshot) SecretsNeedAttention() int` (warming secrets plus secrets with an expired certificate).
-  - `func secretsFrom(scs []admin.SecretConfig, certs []admin.Cert, now time.Time) []Secret`.
-  - `func certForSecret(name string, certs []admin.Cert) *admin.Cert`: the only place that knows how `/certs` entries map to secrets.
+  - `func secretsFrom(scs []admin.SecretConfig, now time.Time) []Secret`.
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing tests**
 
 Create `internal/snapshot/secret_test.go`:
 
@@ -709,19 +633,16 @@ import (
 
 var secNow = time.Date(2026, 10, 14, 10, 0, 0, 0, time.UTC)
 
-func TestSecretsFromJoinsCertsAndSorts(t *testing.T) {
+func TestSecretsFromMapsCertFactsAndSorts(t *testing.T) {
 	scs := []admin.SecretConfig{
-		{Name: "b-ok", VersionInfo: "2", Kind: "tls_certificate", State: admin.SecretActive},
+		{Name: "b-ok", VersionInfo: "2", Kind: "tls_certificate", State: admin.SecretActive,
+			Cert: &admin.CertFacts{Serial: "01", SANs: []string{"b.example.com"}, NotAfter: secNow.Add(50 * time.Hour)}},
 		{Name: "a-warm", VersionInfo: "3", Kind: "tls_certificate", State: admin.SecretWarming},
-		{Name: "c-expired", VersionInfo: "1", Kind: "tls_certificate", State: admin.SecretActive},
+		{Name: "c-expired", VersionInfo: "1", Kind: "tls_certificate", State: admin.SecretActive,
+			Cert: &admin.CertFacts{Serial: "02", NotAfter: secNow.Add(-time.Hour)}},
 		{Name: "d-static", Kind: "validation_context", State: admin.SecretStatic},
 	}
-	certs := []admin.Cert{
-		{Path: "b-ok", Serial: "01", SANs: []string{"b.example.com"}, NotAfter: secNow.Add(48 * time.Hour), DaysLeft: 2},
-		{Path: "c-expired", Serial: "02", NotAfter: secNow.Add(-time.Hour)},
-		{Path: "unrelated", Serial: "09"},
-	}
-	got := secretsFrom(scs, certs, secNow)
+	got := secretsFrom(scs, secNow)
 	var order []string
 	for _, s := range got {
 		order = append(order, s.Name)
@@ -738,11 +659,11 @@ func TestSecretsFromJoinsCertsAndSorts(t *testing.T) {
 	if c := by["b-ok"].Cert; c == nil || c.Serial != "01" || c.SANs[0] != "b.example.com" || c.DaysLeft != 2 || c.Expired(secNow) {
 		t.Fatalf("b-ok cert: %+v", c)
 	}
-	if c := by["c-expired"].Cert; c == nil || !c.Expired(secNow) {
+	if c := by["c-expired"].Cert; c == nil || !c.Expired(secNow) || c.DaysLeft > 0 {
 		t.Fatalf("c-expired cert: %+v", c)
 	}
 	if by["a-warm"].Cert != nil || by["d-static"].Cert != nil {
-		t.Fatal("a secret without a matching cert has no Cert")
+		t.Fatal("a secret without readable certificate facts has no Cert")
 	}
 	if by["a-warm"].State != SecretWarming || by["d-static"].State != SecretStatic {
 		t.Fatal("state mapping")
@@ -760,25 +681,43 @@ func TestSecretsNeedAttention(t *testing.T) {
 	}
 }
 
-func fetchWith(t *testing.T, sc demo.Scenario, wrap func(admin.Client) admin.Client) Snapshot {
-	t.Helper()
-	srv := httptest.NewServer(demo.NewServer(sc))
+type secretsFail struct {
+	admin.Client
+	err error
+}
+
+func (s secretsFail) SecretConfigs(context.Context) ([]admin.SecretConfig, error) { return nil, s.err }
+
+func TestSecretsFailureDegradesInline(t *testing.T) {
+	srv := httptest.NewServer(demo.NewServer(demo.Degraded()))
 	t.Cleanup(srv.Close)
 	real, err := admin.NewHTTP(srv.URL, time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := Fetch(context.Background(), wrap(real))
+	s, err := Fetch(context.Background(), secretsFail{Client: real, err: errors.New("boom")})
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("a secrets failure must not fail the snapshot: %v", err)
 	}
-	return s
+	if s.SecretsErr != "secrets unavailable: boom" || len(s.Secrets) != 0 || len(s.Clusters) == 0 {
+		t.Fatalf("secrets failure: %q %d %d", s.SecretsErr, len(s.Secrets), len(s.Clusters))
+	}
 }
 
 func TestFetchSecretsFromDemo(t *testing.T) {
-	s := fetchWith(t, demo.Degraded(), func(c admin.Client) admin.Client { return c })
-	if s.SecretsErr != "" || s.CertsErr != "" || len(s.Secrets) == 0 {
-		t.Fatalf("err=%q certsErr=%q n=%d", s.SecretsErr, s.CertsErr, len(s.Secrets))
+	t.Skip("needs demo secrets, Task 8")
+	srv := httptest.NewServer(demo.NewServer(demo.Degraded()))
+	t.Cleanup(srv.Close)
+	c, err := admin.NewHTTP(srv.URL, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := Fetch(context.Background(), c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.SecretsErr != "" || len(s.Secrets) == 0 {
+		t.Fatalf("err=%q n=%d", s.SecretsErr, len(s.Secrets))
 	}
 	var withCert int
 	for _, sec := range s.Secrets {
@@ -787,50 +726,12 @@ func TestFetchSecretsFromDemo(t *testing.T) {
 		}
 	}
 	if withCert == 0 {
-		t.Fatal("demo certs must join onto demo secrets")
-	}
-}
-
-type secretsFail struct {
-	admin.Client
-	secretsErr, certsErr error
-}
-
-func (s secretsFail) SecretConfigs(ctx context.Context) ([]admin.SecretConfig, error) {
-	if s.secretsErr != nil {
-		return nil, s.secretsErr
-	}
-	return s.Client.SecretConfigs(ctx)
-}
-
-func (s secretsFail) Certs(ctx context.Context) ([]admin.Cert, error) {
-	if s.certsErr != nil {
-		return nil, s.certsErr
-	}
-	return s.Client.Certs(ctx)
-}
-
-func TestSecretsFailuresDegradeInline(t *testing.T) {
-	boom := errors.New("boom")
-	s := fetchWith(t, demo.Degraded(), func(c admin.Client) admin.Client { return secretsFail{Client: c, secretsErr: boom} })
-	if s.SecretsErr != "secrets unavailable: boom" || len(s.Secrets) != 0 || len(s.Clusters) == 0 {
-		t.Fatalf("secrets failure: %q %d %d", s.SecretsErr, len(s.Secrets), len(s.Clusters))
-	}
-	s = fetchWith(t, demo.Degraded(), func(c admin.Client) admin.Client { return secretsFail{Client: c, certsErr: boom} })
-	if s.CertsErr != "certificate details unavailable: boom" || s.SecretsErr != "" || len(s.Secrets) == 0 {
-		t.Fatalf("certs failure: %q %q %d", s.CertsErr, s.SecretsErr, len(s.Secrets))
-	}
-	for _, sec := range s.Secrets {
-		if sec.Cert != nil {
-			t.Fatalf("no cert facts when /certs failed: %+v", sec)
-		}
+		t.Fatal("demo certificates must show up as certificate facts")
 	}
 }
 ```
 
-(The demo helpers these tests rely on are added in Task 8; until then Tasks 4's `fetchWith` tests are written but expected to fail on the demo, see Step 2. To keep Task 4 independently green, mark the three demo-dependent tests with `t.Skip("needs demo secrets, Task 8")` in this task and remove the skips in Task 8 Step 5.)
-
-- [ ] **Step 2: Run the test to verify it fails**
+- [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `go test ./internal/snapshot/ -run 'Secrets' -v`
 Expected: FAIL to compile (`secretsFrom`, `Secret` ... undefined).
@@ -866,7 +767,7 @@ type CertInfo struct {
 	Serial   string
 	SANs     []string
 	NotAfter time.Time
-	DaysLeft int64
+	DaysLeft int64 // whole days until NotAfter at fetch time; not positive once expired
 }
 
 // Expired reports whether the certificate is past its expiry at now.
@@ -893,25 +794,6 @@ type SecretUse struct {
 	Loaded bool
 }
 
-// certForSecret picks the certificate /certs reports for the named secret,
-// preferring the leaf over a CA. It is the only place that knows how a /certs
-// entry maps back to an SDS secret.
-func certForSecret(name string, certs []admin.Cert) *admin.Cert {
-	var ca *admin.Cert
-	for i := range certs {
-		if certs[i].Path != name {
-			continue
-		}
-		if !certs[i].CA {
-			return &certs[i]
-		}
-		if ca == nil {
-			ca = &certs[i]
-		}
-	}
-	return ca
-}
-
 func secretStatus(s admin.SecretState) SecretStatus {
 	switch s {
 	case admin.SecretWarming:
@@ -923,18 +805,26 @@ func secretStatus(s admin.SecretState) SecretStatus {
 	}
 }
 
-// secretsFrom builds the sorted secret list and joins certificate facts by name.
-func secretsFrom(scs []admin.SecretConfig, certs []admin.Cert, now time.Time) []Secret {
+func certInfo(f *admin.CertFacts, now time.Time) *CertInfo {
+	if f == nil {
+		return nil
+	}
+	c := &CertInfo{Serial: f.Serial, SANs: f.SANs, NotAfter: f.NotAfter}
+	if !f.NotAfter.IsZero() {
+		c.DaysLeft = int64(f.NotAfter.Sub(now).Hours() / 24)
+	}
+	return c
+}
+
+// secretsFrom builds the sorted secret list.
+func secretsFrom(scs []admin.SecretConfig, now time.Time) []Secret {
 	out := make([]Secret, 0, len(scs))
 	for _, sc := range scs {
-		s := Secret{
+		out = append(out, Secret{
 			Name: sc.Name, Kind: sc.Kind, VersionInfo: sc.VersionInfo,
 			State: secretStatus(sc.State), LastUpdated: sc.LastUpdated,
-		}
-		if c := certForSecret(sc.Name, certs); c != nil {
-			s.Cert = &CertInfo{Serial: c.Serial, SANs: c.SANs, NotAfter: c.NotAfter, DaysLeft: c.DaysLeft}
-		}
-		out = append(out, s)
+			Cert: certInfo(sc.Cert, now),
+		})
 	}
 	sortSecrets(out, now)
 	return out
@@ -974,54 +864,33 @@ func (s Snapshot) SecretsNeedAttention() int {
 }
 ```
 
-Modify `internal/snapshot/snapshot.go`:
-
-In `Snapshot` add:
+Modify `internal/snapshot/snapshot.go`: add to `Snapshot`
 
 ```go
-	Secrets      []Secret
-	SecretsErr   string // "secrets unavailable: <reason>" when the dump failed
-	CertsErr     string // "certificate details unavailable: <reason>" when /certs failed
+	Secrets    []Secret
+	SecretsErr string // "secrets unavailable: <reason>" when the dump failed
 ```
 
-In `Fetch`, extend the variable block and the goroutines:
+In `Fetch`, extend the variable block with `scs []admin.SecretConfig` and `secretsErr error`, make it `wg.Add(4)`, add `go func() { defer wg.Done(); scs, secretsErr = c.SecretConfigs(ctx) }()`, and after `sortListeners(out.Listeners)`:
 
 ```go
-		scs          []admin.SecretConfig
-		secretsErr   error
-		certs        []admin.Cert
-		certsErr     error
-	)
-	wg.Add(5)
-	// ...existing three goroutines...
-	go func() { defer wg.Done(); scs, secretsErr = c.SecretConfigs(ctx) }()
-	go func() { defer wg.Done(); certs, certsErr = c.Certs(ctx) }()
-```
-
-and, after `sortListeners(out.Listeners)`:
-
-```go
-	switch {
-	case secretsErr != nil:
+	if secretsErr != nil {
 		out.SecretsErr = "secrets unavailable: " + secretsErr.Error()
-	case certsErr != nil:
-		out.CertsErr = "certificate details unavailable: " + certsErr.Error()
-		out.Secrets = secretsFrom(scs, nil, out.FetchedAt)
-	default:
-		out.Secrets = secretsFrom(scs, certs, out.FetchedAt)
+	} else {
+		out.Secrets = secretsFrom(scs, out.FetchedAt)
 	}
 ```
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `go test ./internal/snapshot/ -v`
-Expected: PASS (demo-dependent tests skipped).
+Expected: PASS (`TestFetchSecretsFromDemo` skipped until Task 8).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add internal/snapshot
-git commit -m "feat(snapshot): fetch secrets and join certificate facts"
+git commit -m "feat(snapshot): fetch secrets and expose their certificate facts"
 ```
 
 ---
@@ -1229,7 +1098,7 @@ git commit -m "feat(snapshot): derive which clusters and listeners use each secr
 - Modify (fix, if they assume two tabs): `internal/ui/views_test.go`, `internal/ui/focus_test.go`, `internal/ui/model_test.go`
 
 **Interfaces:**
-- Consumes: `snapshot.Secret`, `Snapshot.SecretsErr`, `Snapshot.CertsErr`, `SecretsNeedAttention` (Task 4).
+- Consumes: `snapshot.Secret`, `Snapshot.SecretsErr`, `SecretsNeedAttention` (Task 4).
 - Produces:
   - `kindSecrets` (after `kindListeners`) and its `resource`.
   - `type secretItem struct{ s snapshot.Secret; now time.Time }` implementing `resourceItem`; `func secretItems(ss []snapshot.Secret, now time.Time) []resourceItem`.
@@ -1316,10 +1185,6 @@ func TestSecretsResourceChrome(t *testing.T) {
 	if r.tabLabel(s) != "Secrets (!)" || r.summary(s) != "secrets unavailable" || r.notice(s) != s.SecretsErr {
 		t.Fatalf("failed dump: %q %q %q", r.tabLabel(s), r.summary(s), r.notice(s))
 	}
-	s.SecretsErr, s.CertsErr = "", "certificate details unavailable: boom"
-	if r.notice(s) != s.CertsErr || r.warn(s) {
-		t.Fatalf("certs-only failure is a notice, not a warning: %q", r.notice(s))
-	}
 }
 
 func TestTabCyclesThroughThreeKinds(t *testing.T) {
@@ -1358,12 +1223,7 @@ In `internal/ui/view.go` add `kindSecrets` after `kindListeners` and append to `
 			}
 			return fmt.Sprintf("%s · %d need attention", plural(len(s.Secrets), "secret"), s.SecretsNeedAttention())
 		},
-		notice: func(s snapshot.Snapshot) string {
-			if s.SecretsErr != "" {
-				return s.SecretsErr
-			}
-			return s.CertsErr
-		},
+		notice:      func(s snapshot.Snapshot) string { return s.SecretsErr },
 		warn:        func(s snapshot.Snapshot) bool { return s.SecretsErr != "" || s.SecretsNeedAttention() > 0 },
 		emptyList:   "no secrets",
 		emptyDetail: "no secret selected",
@@ -1714,26 +1574,31 @@ git commit -m "feat(ui): show secret details and the secrets each cluster and li
 
 ---
 
-### Task 8: Demo server secrets and `/certs`
+### Task 8: Demo server secrets
+
+> **Amended after Task 2.** The demo no longer serves `/certs`: certificate facts come from the public certificate PEM inside the secrets dump, so the demo generates real certificates and emits their PEM like Envoy does (the private key stays `[redacted]`).
 
 **Files:**
 - Modify: `internal/demo/scenario.go`, `internal/demo/server.go`
+- Create: `internal/demo/certs.go` (certificate generation)
 - Modify: `internal/demo/server_test.go`
-- Modify: `internal/snapshot/secret_test.go` (remove the Task 4 skips)
+- Modify: `internal/snapshot/secret_test.go` (remove the Task 4 skip)
+- Regenerate: `internal/ui/testdata/*.golden` (`go test ./internal/ui/ -update`, controller ruling: every task ends green)
 
 **Interfaces:**
-- Consumes: the request shapes of Tasks 1 and 3.
+- Consumes: the request shapes of Tasks 1 and 3 (`dynamic_active_secrets`, `dynamic_warming_secrets`, `static_secrets` resources; `inline_string` PEM).
 - Produces:
-  - `demo.Secret{Name, Version, Kind, State string; Cert *DemoCert}`; `demo.DemoCert{Serial string; SANs []string; DaysLeft int; CA bool}`.
+  - `demo.Secret{Name, Version, Kind, State string; Cert *DemoCert}`; `demo.DemoCert{Serial int64; SANs []string; DaysLeft int}` (`DaysLeft` negative means expired; it is relative to `Scenario.Updated`).
   - `Scenario.Secrets []Secret`; `Cluster.Secrets []string` and `Listener.Secrets []string` (names, emitted as SDS references in their config JSON).
-  - `Scenario.SecretsJSON(resource string) ([]byte, bool)` and `Scenario.CertsJSON() []byte`; routes `config_dump?resource=dynamic_active_secrets|dynamic_warming_secrets|static_secrets` and `/certs`.
+  - `Scenario.SecretsJSON(resource string) ([]byte, bool)` and the routes for the three resources through the existing `/config_dump` handler.
+  - `func certPEM(serial int64, sans []string, notAfter time.Time) string` in `certs.go`.
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `internal/demo/server_test.go` (match the file's existing request helper; it uses `httptest` against `NewServer`; if no helper exists, use `httptest.NewServer(NewServer(Degraded()))` and `http.Get`):
+Append to `internal/demo/server_test.go` (match the file's existing request helper; if none, use `httptest.NewServer(NewServer(Degraded()))` and `http.Get`):
 
 ```go
-func TestServerServesSecretsAndCerts(t *testing.T) {
+func TestServerServesSecrets(t *testing.T) {
 	srv := httptest.NewServer(NewServer(Degraded()))
 	defer srv.Close()
 	get := func(path string) string {
@@ -1748,8 +1613,13 @@ func TestServerServesSecretsAndCerts(t *testing.T) {
 		}
 		return string(b)
 	}
-	if b := get("/config_dump?resource=dynamic_active_secrets"); !strings.Contains(b, "SecretsConfigDump.DynamicSecret") || !strings.Contains(b, "server-cert") {
-		t.Fatalf("active: %s", b)
+	active := get("/config_dump?resource=dynamic_active_secrets")
+	if !strings.Contains(active, "SecretsConfigDump.DynamicSecret") || !strings.Contains(active, "server-cert") ||
+		!strings.Contains(active, "BEGIN CERTIFICATE") {
+		t.Fatalf("active: %s", active)
+	}
+	if strings.Contains(active, "PRIVATE KEY") || !strings.Contains(active, "[redacted]") {
+		t.Fatal("like Envoy, the demo redacts private keys and never emits one")
 	}
 	if b := get("/config_dump?resource=dynamic_warming_secrets"); !strings.Contains(b, "rotating-cert") {
 		t.Fatalf("warming: %s", b)
@@ -1757,33 +1627,80 @@ func TestServerServesSecretsAndCerts(t *testing.T) {
 	if b := get("/config_dump?resource=static_secrets"); !strings.Contains(b, "SecretsConfigDump.StaticSecret") {
 		t.Fatalf("static: %s", b)
 	}
-	if b := get("/certs"); !strings.Contains(b, "server-cert") || !strings.Contains(b, "days_until_expiration") {
-		t.Fatalf("certs: %s", b)
-	}
-	if b := get("/config_dump?resource=dynamic_active_secrets"); strings.Contains(strings.ToLower(b), "private_key") && !strings.Contains(b, "[redacted]") {
-		t.Fatal("the demo mimics Envoy: private keys are redacted in the dump")
-	}
 	if b := get("/config_dump?resource=dynamic_active_clusters"); !strings.Contains(b, "tls_certificate_sds_secret_configs") {
 		t.Fatalf("a demo cluster must reference a secret: %s", b)
 	}
 }
+
+func TestCertPEMRoundTrips(t *testing.T) {
+	notAfter := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
+	block, _ := pem.Decode([]byte(certPEM(0x0a1b2c, []string{"api.example.com"}, notAfter)))
+	if block == nil || block.Type != "CERTIFICATE" {
+		t.Fatalf("block: %+v", block)
+	}
+	c, err := x509.ParseCertificate(block.Bytes)
+	if err != nil || c.SerialNumber.Int64() != 0x0a1b2c || c.DNSNames[0] != "api.example.com" || !c.NotAfter.Equal(notAfter) {
+		t.Fatalf("%v %+v", err, c)
+	}
+}
 ```
+
+(add `crypto/x509`, `encoding/pem`, `io`, `net/http`, `net/http/httptest`, `strings` and `time` to the imports as needed.)
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `go test ./internal/demo/ -run SecretsAndCerts -v`
-Expected: FAIL (`unsupported resource` or 404).
+Run: `go test ./internal/demo/ -run 'Secrets|CertPEM' -v`
+Expected: FAIL (`unsupported resource` or 404; `certPEM` undefined).
 
 - [ ] **Step 3: Write the minimal implementation**
 
-In `scenario.go` add the types and fields:
+Create `internal/demo/certs.go`:
 
 ```go
+package demo
+
+import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
+	"time"
+)
+
+// certPEM returns a throwaway self-signed certificate with the given serial,
+// DNS SANs and expiry. The key is generated per call and thrown away.
+func certPEM(serial int64, sans []string, notAfter time.Time) string {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		panic(err)
+	}
+	tpl := &x509.Certificate{
+		SerialNumber: big.NewInt(serial),
+		Subject:      pkix.Name{CommonName: "envoyadmin-demo"},
+		NotBefore:    notAfter.AddDate(-1, 0, 0),
+		NotAfter:     notAfter,
+		DNSNames:     sans,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tpl, tpl, &key.PublicKey, key)
+	if err != nil {
+		panic(err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
+}
+```
+
+In `scenario.go` add the types:
+
+```go
+// DemoCert describes the certificate inside a demo secret. DaysLeft is
+// relative to Scenario.Updated and negative means already expired.
 type DemoCert struct {
-	Serial   string
+	Serial   int64
 	SANs     []string
 	DaysLeft int
-	CA       bool
 }
 
 // Secret is one entry of Envoy's secrets dump. State is "active", "warming" or
@@ -1796,7 +1713,7 @@ type Secret struct {
 
 `Scenario` gains `Secrets []Secret`; `Cluster` and `Listener` gain `Secrets []string`.
 
-Emit SDS references inside the cluster JSON (in the `cl` map of `ConfigDumpJSON`) and the listener JSON (in `Chain.json` through `Listener.json`; put them on the first chain's `transport_socket`):
+Emit SDS references inside the cluster JSON (in the `cl` map of `ConfigDumpJSON`) and the listener JSON (first chain of `Listener.json`):
 
 ```go
 func sdsContext(names []string) map[string]any {
@@ -1816,12 +1733,13 @@ func sdsContext(names []string) map[string]any {
 
 Set `cl["transport_socket"] = sdsContext(c.Secrets)` when `len(c.Secrets) > 0`, and in `Listener.json` set `chains[0].(map[string]any)["transport_socket"] = sdsContext(l.Secrets)` when `len(l.Secrets) > 0 && len(chains) > 0`.
 
-Add the dump builders:
+Add the dump builder:
 
 ```go
 // SecretsJSON returns the dump for ?resource=dynamic_active_secrets,
 // dynamic_warming_secrets or static_secrets, one configs[] element per secret
-// as Envoy emits it. Like Envoy, it redacts the private key.
+// as Envoy emits it. Like Envoy, it keeps the public certificate and redacts
+// the private key.
 func (s Scenario) SecretsJSON(resource string) ([]byte, bool) {
 	var want, typ string
 	switch resource {
@@ -1840,13 +1758,25 @@ func (s Scenario) SecretsJSON(resource string) ([]byte, bool) {
 			continue
 		}
 		body := map[string]any{"name": sec.Name}
+		var pemText string
+		if sec.Cert != nil {
+			pemText = certPEM(sec.Cert.Serial, sec.Cert.SANs, s.Updated.AddDate(0, 0, sec.Cert.DaysLeft))
+		}
 		switch sec.Kind {
 		case "validation_context":
-			body["validation_context"] = map[string]any{"trusted_ca": map[string]any{"inline_bytes": "[redacted]"}}
+			ca := map[string]any{}
+			if pemText != "" {
+				ca["inline_string"] = pemText
+			}
+			body["validation_context"] = map[string]any{"trusted_ca": ca}
 		default:
+			chain := map[string]any{}
+			if pemText != "" {
+				chain["inline_string"] = pemText
+			}
 			body["tls_certificate"] = map[string]any{
-				"certificate_chain": map[string]any{"inline_bytes": "[redacted]"},
-				"private_key":       map[string]any{"inline_bytes": "[redacted]"},
+				"certificate_chain": chain,
+				"private_key":       map[string]any{"inline_string": "[redacted]"},
 			}
 		}
 		e := map[string]any{
@@ -1862,67 +1792,42 @@ func (s Scenario) SecretsJSON(resource string) ([]byte, bool) {
 	}
 	return mustJSON(map[string]any{"configs": configs}), true
 }
-
-// CertsJSON mirrors /certs: one group per secret that carries a certificate.
-func (s Scenario) CertsJSON() []byte {
-	groups := []any{}
-	for _, sec := range s.Secrets {
-		c := sec.Cert
-		if c == nil {
-			continue
-		}
-		sans := []any{}
-		for _, n := range c.SANs {
-			sans = append(sans, map[string]any{"dns": n})
-		}
-		d := map[string]any{
-			"path": sec.Name, "serial_number": c.Serial, "subject_alt_names": sans,
-			"days_until_expiration": strconv.Itoa(c.DaysLeft),
-			"valid_from":            s.Updated.AddDate(-1, 0, 0).Format(time.RFC3339),
-			"expiration_time":       s.Updated.AddDate(0, 0, c.DaysLeft).Format(time.RFC3339),
-		}
-		key := "cert_chain"
-		if c.CA {
-			key = "ca_cert"
-		}
-		groups = append(groups, map[string]any{key: []any{d}})
-	}
-	return mustJSON(map[string]any{"certificates": groups})
-}
 ```
 
-(If Task 2's real capture used a different `path` identification, make `CertsJSON` emit the same identification the capture shows, so the demo and `certForSecret` agree.)
+In `ConfigDumpJSON` add a first lookup: `if b, ok := s.SecretsJSON(resource); ok { return b, true }` ahead of the `switch`. Also deep-copy `Secrets` (the slice and each `Cert`) and the new `Secrets []string` fields in `Server.Update`. (Certificates are regenerated per request, so `last_updated` and the serials stay stable but the keys differ; that is fine, the snapshot reads only serial, SANs and expiry.)
 
-In `ConfigDumpJSON` add a first lookup: `if b, ok := s.SecretsJSON(resource); ok { return b, true }` ahead of the `switch`. In `server.go` add `case "/certs": _, _ = w.Write(sc.CertsJSON())`. Also deep-copy `Secrets` and the new `Secrets []string` fields in `Server.Update`.
-
-Give the scenarios data: add to `base()` a helper `demoSecrets()` returning
+Give the scenarios data in `Healthy()` and `Degraded()` only, not in `base()` (controller ruling: `Big(n)` and its filtered golden must not change). A helper:
 
 ```go
-[]Secret{
-	{Name: "server-cert", Version: "12", Kind: "tls_certificate", State: "active",
-		Cert: &DemoCert{Serial: "0a1b2c", SANs: []string{"api.example.com", "*.internal"}, DaysLeft: 62}},
-	{Name: "mesh-ca", Version: "3", Kind: "validation_context", State: "active",
-		Cert: &DemoCert{Serial: "01", DaysLeft: 900, CA: true}},
-	{Name: "rotating-cert", Version: "8", Kind: "tls_certificate", State: "warming"},
-	{Name: "bootstrap-cert", Kind: "tls_certificate", State: "static",
-		Cert: &DemoCert{Serial: "ff00", DaysLeft: 0}},
+func demoSecrets() []Secret {
+	return []Secret{
+		{Name: "server-cert", Version: "12", Kind: "tls_certificate", State: "active",
+			Cert: &DemoCert{Serial: 0x0a1b2c, SANs: []string{"api.example.com", "internal.example.com"}, DaysLeft: 62}},
+		{Name: "mesh-ca", Version: "3", Kind: "validation_context", State: "active",
+			Cert: &DemoCert{Serial: 1, DaysLeft: 900}},
+		{Name: "rotating-cert", Version: "8", Kind: "tls_certificate", State: "warming"},
+		{Name: "bootstrap-cert", Kind: "tls_certificate", State: "static",
+			Cert: &DemoCert{Serial: 0xff00, DaysLeft: -3}},
+	}
 }
 ```
 
-and reference them: `api-gateway` gets `Secrets: []string{"server-cert", "mesh-ca"}`, `orders-db` gets `[]string{"mesh-ca", "missing-cert"}` (an unloaded reference), and the `0.0.0.0_8080` listener gets `Secrets: []string{"server-cert"}`. `Big(n)` keeps no secrets.
+and reference them: `api-gateway` gets `Secrets: []string{"server-cert", "mesh-ca"}`, `orders-db` gets `[]string{"mesh-ca", "missing-cert"}` (an unloaded reference), and the `0.0.0.0_8080` listener (in both `healthyListeners()` and `degradedListeners()`) gets `Secrets: []string{"server-cert"}`. `bootstrap-cert` is expired on purpose so the demo shows the `✗` marker.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Remove the three `t.Skip` lines added in Task 4, then run:
+Remove the `t.Skip` line in `TestFetchSecretsFromDemo`, add to that test the assertions that `server-cert` has `UsedBy` containing `{cluster api-gateway}` and `{listener 0.0.0.0_8080}` and a `Cert` with serial `a1b2c`, that `bootstrap-cert` is expired at `s.FetchedAt`... (use `secNow`-independent check: `Cert.Expired(s.FetchedAt)` is true), and that the `orders-db` cluster has a `SecretUse{"missing-cert", false}`. (The `UsedBy` and cluster `Secrets` assertions need Task 5; they are added in Task 5's own demo assertions if Task 5 is not yet done, otherwise here.) Then:
 
 Run: `go test ./internal/demo/ ./internal/snapshot/ -v`
-Expected: PASS, including the Task 4 demo-based tests and an extra assertion you should add to `TestFetchSecretsFromDemo`: the secret `server-cert` has `UsedBy` containing `{cluster api-gateway}` and `{listener 0.0.0.0_8080}`, and the `orders-db` cluster has a `SecretUse{"missing-cert", false}`.
+Run: `go test ./internal/ui/ -update` and review `git diff internal/ui/testdata`: only the Secrets tab in headers and the Secrets rows in the `api-gateway`, `orders-db` and `0.0.0.0_8080` views may change.
+Run: `go test ./...`
+Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add internal/demo internal/snapshot
-git commit -m "feat(demo): serve secrets and certs from the fake Envoy"
+git add internal/demo internal/snapshot internal/ui
+git commit -m "feat(demo): serve secrets with real certificates from the fake Envoy"
 ```
 
 ---
@@ -1985,8 +1890,8 @@ In `README.md`: change "It has two tabs, **Clusters** ... and **Listeners**" to 
 
 ```markdown
 - Secrets tab: every secret Envoy has loaded, with state (`●` active or static, `◐` warming, `✗` certificate expired), name and `version_info`; warming and expired ones sort first. `/` fuzzy-filters by name.
-- Secret Overview (`o`): kind (`tls_certificate`, `validation_context`, ...), version, last updated, the certificate's serial, SANs and expiry from `/certs`, and the clusters and listeners that reference the secret. Secret content is never fetched or shown; the Config tab (`c`) only says so. The cluster and listener Overviews list the secrets they use, and mark one Envoy has not loaded as `(not loaded)`.
-- A failing secrets dump never raises the error banner: the tab reads `Secrets (!)` with an inline message, and a failing `/certs` only drops the certificate details.
+- Secret Overview (`o`): kind (`tls_certificate`, `validation_context`, ...), version, last updated, the certificate's serial, SANs and expiry (read from the public certificate in the secrets dump), and the clusters and listeners that reference the secret. Secret content is never fetched or shown; the Config tab (`c`) only says so. The cluster and listener Overviews list the secrets they use, and mark one Envoy has not loaded as `(not loaded)`.
+- A failing secrets dump never raises the error banner: the tab reads `Secrets (!)` with an inline message, and a secret whose certificate cannot be read is listed without certificate details.
 ```
 
 - [ ] **Step 5: Run the whole suite and lint**
@@ -2005,6 +1910,6 @@ git commit -m "docs: document the Secrets tab and refresh the goldens"
 
 ## Self-review
 
-- **Spec coverage:** data fetching and decoding (Tasks 1 to 3), join and snapshot types (Task 4), "used by" and not-loaded (Task 5), tab, rows, Overview, Config note, tab label warnings, cluster and listener rows (Tasks 6 and 7), demo and README (Tasks 8 and 9), errors (Tasks 4, 6 and 9), testing items: real capture (2), join, `UsedBy`, not-loaded (4 and 5), goldens (9), sentinel test (1 for the decoder, 7 for rendering), the open `/certs` item (Tasks 2 and 3, with `certForSecret` as the single place to change).
+- **Spec coverage:** data fetching and decoding (Tasks 1 to 3), join and snapshot types (Task 4), "used by" and not-loaded (Task 5), tab, rows, Overview, Config note, tab label warnings, cluster and listener rows (Tasks 6 and 7), demo and README (Tasks 8 and 9), errors (Tasks 4, 6 and 9), testing items: real capture (2), join, `UsedBy`, not-loaded (4 and 5), goldens (9), sentinel test (1 for the decoder, 7 for rendering), the open `/certs` item, settled in Task 2 (`/certs` cannot be joined; Task 3 reads certificate facts from the secret's public certificate instead).
 - **Placeholders:** the `PATH` marker in Task 3's real-capture test and the endpoint-row wording in Task 7's `endpoints.go` step depend on the Task 2 capture and on reading `endpointLines`; both are stated as explicit instructions, not left open.
-- **Types:** `SecretConfig`, `Cert`, `Secret`, `CertInfo`, `Ref`, `SecretUse`, `secretsFrom`, `certForSecret`, `secretRefs`, `linkSecrets`, `secretItems`, `kindSecrets` are named identically across tasks.
+- **Types:** `SecretConfig`, `Cert`, `Secret`, `CertInfo`, `Ref`, `SecretUse`, `secretsFrom`, `secretRefs`, `linkSecrets`, `secretItems`, `kindSecrets` are named identically across tasks.
