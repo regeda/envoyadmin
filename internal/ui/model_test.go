@@ -502,3 +502,24 @@ func TestHelpLineKeepsTheRarelyKnownKeysWhenNarrow(t *testing.T) {
 		}
 	}
 }
+
+// The banner's first row carries "last ok Ns ago", whose length changes with
+// the clock. The row count is fixed when the layout runs, so a render between
+// events must still fit the terminal.
+func TestBannerHeightIgnoresTheClock(t *testing.T) {
+	now := fixedNow.Add(9 * time.Second)
+	o := testOpts(nil)
+	o.Config.Admin = "http://" + strings.Repeat("a", 31) + ":15000"
+	o.Clock = func() time.Time { return now }
+	m := sized(New(o), 80, 30)
+	m = send(m, snapshotMsg{snap: snap(cl("api", 1, 2))})
+	m = send(m, snapshotMsg{err: errors.New("context deadline exceeded")})
+
+	now = fixedNow.Add(10 * time.Second) // "9s" -> "10s" pushes the first row past the width
+	if n := len(strings.Split(m.View(), "\n")); n != 30 {
+		t.Fatalf("frame is %d lines, want 30", n)
+	}
+	if got, want := m.cur().list.height, m.paneHeight(); got != want {
+		t.Fatalf("list sized for %d rows but the frame gives it %d", got, want)
+	}
+}

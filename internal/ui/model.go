@@ -58,13 +58,14 @@ type tickMsg struct{}
 type Model struct {
 	opts Options
 
-	snap      snapshot.Snapshot
-	hasSnap   bool
-	err       error
-	dismissed string
-	lastOK    time.Time
-	inflight  bool
-	state     connState
+	snap       snapshot.Snapshot
+	hasSnap    bool
+	err        error
+	dismissed  string
+	bannerRows int // rows the last layout gave the banner; the clock must not change it
+	lastOK     time.Time
+	inflight   bool
+	state      connState
 
 	focus         focus
 	help          bool
@@ -114,7 +115,7 @@ func (m Model) headerRows() int {
 }
 
 func (m Model) paneHeight() int {
-	return max(m.height-m.headerRows()-len(m.banner())-footerRows, 1)
+	return max(m.height-m.headerRows()-m.bannerRows-footerRows, 1)
 }
 
 // listWidth is 30% of the terminal, but never below 28 cells (the narrowest
@@ -122,6 +123,10 @@ func (m Model) paneHeight() int {
 func (m Model) listWidth() int { return max(m.width*30/100, 28) }
 
 func (m *Model) layout() {
+	m.bannerRows = 0
+	if m.bannerVisible() {
+		m.bannerRows = len(bannerLines(m.bannerText(), m.width, bannerRowBudget(m.height, m.headerRows())))
+	}
 	listW := m.listWidth()
 	detailW := max(m.width-listW-1, 1)
 	for k := range m.views {
@@ -145,12 +150,19 @@ func (m Model) bannerVisible() bool {
 	return m.err != nil && m.err.Error() != m.dismissed
 }
 
-// banner is the rendered banner rows, or nil when none is showing.
+// banner is the rendered banner, exactly m.bannerRows rows tall, or nil when
+// none is showing. The text carries "last ok Ns ago", whose length changes with
+// the clock, so a render between layouts gets the row count the layout used:
+// a longer text is cut with an ellipsis and a shorter one is padded.
 func (m Model) banner() []string {
-	if !m.bannerVisible() {
+	if !m.bannerVisible() || m.bannerRows == 0 {
 		return nil
 	}
-	return bannerLines(m.bannerText(), m.width, bannerRowBudget(m.height, m.headerRows()))
+	rows := bannerLines(m.bannerText(), m.width, m.bannerRows)
+	for len(rows) < m.bannerRows {
+		rows = append(rows, bannerLines(" ", m.width, 1)...)
+	}
+	return rows
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
