@@ -1,3 +1,7 @@
+█▀▀ █▄ █ █ █ █▀█ █ █ ▄▀█ █▀▄ █▀▄▀█ █ █▄ █               ✗ disconnected  http://envoy:15000
+██▄ █ ▀█ ▀▄▀ █▄█  █  █▀█ █▄▀ █ ▀ █ █ █ ▀█                                   last ok 2s ago
+
+ [Clusters (6)]  Listeners (7)   Secrets (!) 
  ✗ disconnected · http://envoy:15000 · last ok 2s ago                                     
  GET /clusters: Get "http://localhost:15000/clusters?format=json": dial tcp               
  127.0.0.1:15000: connect: connection refused                                             
@@ -10,10 +14,6 @@
  ● search   EDS          2/2│ADDRESS        FLAGS               RQ_ACTIVE RQ_ERR CX_ACTIVE
  ● xds_clus STATIC       1/1│10.0.2.21:5432 FAILED_OUTLIER_CHE… 0         4      0        
                             │10.0.2.22:5432 FAILED_OUTLIER_CHE… 0         9      0        
-                            │                                                             
-                            │                                                             
-                            │                                                             
-                            │                                                             
                             │                                                             
                             │                                                             
                             │                                                             

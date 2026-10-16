@@ -98,6 +98,41 @@ func TestEndToEndFailureAndRecovery(t *testing.T) {
 	}
 }
 
+// A request timeout must leave the tabs on screen next to the banner.
+func TestEndToEndTimeoutKeepsTabsVisible(t *testing.T) {
+	fake := demo.NewServer(demo.Degraded())
+	srv := httptest.NewServer(fake)
+	defer srv.Close()
+
+	cfg := config.Config{Admin: srv.URL, Refresh: 100 * time.Millisecond, Timeout: 200 * time.Millisecond}
+	client, err := admin.NewHTTP(cfg.Admin, cfg.Timeout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	m := New(Options{
+		Ctx: ctx, Config: cfg, Color: false,
+		Fetch: func(ctx context.Context) (snapshot.Snapshot, error) { return snapshot.Fetch(ctx, client) },
+	})
+	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(80, 30))
+
+	waitFor(t, tm, "● connected", "Clusters (6)")
+	fake.Inject(demo.Fault{Delay: 2 * time.Second})
+	waitFor(t, tm, "retrying every") // the last banner row; the error text itself may wrap
+
+	tm.Send(key("q"))
+	tm.WaitFinished(t, teatest.WithFinalTimeout(5*time.Second))
+	// Output is a diff stream, so assert on the final view.
+	view := tm.FinalModel(t, teatest.WithFinalTimeout(5*time.Second)).View()
+	for _, want := range []string{"Clusters", "Listeners", "Secrets", "disconnected", "retrying every"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q while the fetch times out:\n%s", want, view)
+		}
+	}
+}
+
 // A listener failure is isolated: no banner, the clusters keep working.
 func TestEndToEndListenersTabAndIsolatedFailure(t *testing.T) {
 	fake := demo.NewServer(demo.Degraded())

@@ -109,6 +109,12 @@ func TestGoldenErrorTruncated(t *testing.T) {
 	golden(t, send(m, snapshotMsg{err: errors.New(strings.Repeat("decode failure in a very long message ", 20))}))
 }
 
+func TestGoldenErrorTimeoutCompact(t *testing.T) {
+	m := loaded(t, demo.Degraded(), 100, 20)
+	golden(t, send(m, snapshotMsg{err: errors.New(
+		"GET /clusters: Get \"http://localhost:15000/clusters?format=json\": context deadline exceeded (Client.Timeout exceeded while awaiting headers)")}))
+}
+
 func TestGoldenDetailFocus(t *testing.T) {
 	m := loaded(t, demo.Degraded(), 120, 30)
 	golden(t, send(m, key("enter")))

@@ -1,7 +1,10 @@
+█▀▀ █▄ █ █ █ █▀█ █ █ ▄▀█ █▀▄ █▀▄▀█ █ █▄ █                                             ✗ disconnected  http://envoy:15000
+██▄ █ ▀█ ▀▄▀ █▄█  █  █▀█ █▄▀ █ ▀ █ █ █ ▀█                                                                 last ok 2s ago
+
+ [Clusters (6)]  Listeners (7)   Secrets (!) 
  ✗ disconnected · http://envoy:15000 · last ok 2s ago                                                                   
  GET /clusters: 503 Service Unavailable                                                                                 
  (retrying every 3s)                                                                                                    
- [Clusters (6)]  Listeners (7)   Secrets (!) 
 / to filter                         │  orders-db  ·  Endpoints | Config                                                 
 >● orders-db    STRICT_DNS       0/2│2 hosts · 0 healthy · 2 ejected                                                    
  ● api-gateway  EDS              2/3│Version       41                                                                   
@@ -10,9 +13,6 @@
  ● search       EDS              2/2│ADDRESS        FLAGS                WEIGHT ZONE       RQ_ACTIVE RQ_ERR CX_ACTIVE   
  ● xds_cluster  STATIC           1/1│10.0.2.21:5432 FAILED_OUTLIER_CHECK 1      us-east-1a 0         4      0           
                                     │10.0.2.22:5432 FAILED_OUTLIER_CHECK 1      us-east-1b 0         9      0           
-                                    │                                                                                   
-                                    │                                                                                   
-                                    │                                                                                   
                                     │                                                                                   
                                     │                                                                                   
                                     │                                                                                   
