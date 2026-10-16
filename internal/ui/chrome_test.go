@@ -327,3 +327,22 @@ func TestActiveTabIsBracketedWithoutColour(t *testing.T) {
 		t.Fatalf("width differs: %d", lipgloss.Width(got))
 	}
 }
+
+func TestBannerRowBudget(t *testing.T) {
+	for _, c := range []struct{ height, header, want int }{
+		{30, 4, 4}, {24, 4, 4}, {20, 2, 4}, {12, 2, 4}, {12, 4, 3}, {10, 4, 1}, {0, 4, 1},
+	} {
+		if got := bannerRowBudget(c.height, c.header); got != c.want {
+			t.Errorf("bannerRowBudget(%d, %d) = %d, want %d", c.height, c.header, got, c.want)
+		}
+	}
+	for h := minHeight; h <= 60; h++ {
+		header := 4
+		if h < compactHeight {
+			header = 2
+		}
+		if free := h - header - footerRows - bannerRowBudget(h, header); free < minPaneRows {
+			t.Errorf("height %d leaves %d pane rows, want at least %d", h, free, minPaneRows)
+		}
+	}
+}

@@ -90,6 +90,12 @@ func sanitizeBannerText(s string) string {
 	}, strings.ReplaceAll(s, "\t", "    "))
 }
 
+// bannerRowBudget is the most rows the banner may take. It is clamped so the
+// panes keep minPaneRows of height even at the smallest terminal.
+func bannerRowBudget(height, headerRows int) int {
+	return min(maxBannerRows, max(1, height-headerRows-footerRows-minPaneRows))
+}
+
 // bannerLines wraps text to width, caps it at maxRows (ending with an
 // ellipsis when cut) and paints each row exactly width cells wide on a red
 // background. Rows are clipped explicitly; lipgloss Width() is not used since

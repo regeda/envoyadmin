@@ -19,6 +19,7 @@ const (
 	minHeight     = 12
 	compactHeight = 24
 	maxBannerRows = 4
+	minPaneRows   = 4
 	footerRows    = 1
 )
 
