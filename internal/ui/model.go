@@ -113,7 +113,9 @@ func (m Model) headerRows() int {
 	return 4
 }
 
-func (m Model) paneHeight() int { return max(m.height-m.headerRows()-footerRows, 1) }
+func (m Model) paneHeight() int {
+	return max(m.height-m.headerRows()-len(m.banner())-footerRows, 1)
+}
 
 // listWidth is 30% of the terminal, but never below 28 cells (the narrowest
 // width a cluster row stays readable at).
@@ -143,6 +145,14 @@ func (m Model) bannerVisible() bool {
 	return m.err != nil && m.err.Error() != m.dismissed
 }
 
+// banner is the rendered banner rows, or nil when none is showing.
+func (m Model) banner() []string {
+	if !m.bannerVisible() {
+		return nil
+	}
+	return bannerLines(m.bannerText(), m.width, bannerRowBudget(m.height, m.headerRows()))
+}
+
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -163,9 +173,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.err = msg.err
 			m.state = stateDisconnected
+			m.layout()
+			m.syncDetails()
 			return m, nil
 		}
 		m.err, m.dismissed = nil, ""
+		m.layout()
 		m.state = stateConnected
 		m.snap, m.hasSnap = msg.snap, true
 		m.lastOK = msg.snap.FetchedAt
@@ -226,6 +239,8 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "x":
 		if m.err != nil {
 			m.dismissed = m.err.Error()
+			m.layout()
+			m.syncDetails()
 		}
 	case "?":
 		m.help = !m.help
@@ -348,10 +363,9 @@ func (m Model) View() string {
 	sep := dimStyle.Render(strings.TrimSuffix(strings.Repeat("│\n", paneH), "\n"))
 	panes := lipgloss.JoinHorizontal(lipgloss.Top, m.views[m.active].list.View(), sep, m.detailBlock())
 
-	frame := header + "\n" + panes + "\n" + m.statusLine()
-	if m.bannerVisible() {
-		rows := min(maxBannerRows, max(1, m.height/3))
-		frame = overlay(frame, bannerLines(m.bannerText(), m.width, rows))
+	frame := header + "\n"
+	if banner := m.banner(); len(banner) > 0 {
+		frame += strings.Join(banner, "\n") + "\n"
 	}
-	return frame
+	return frame + panes + "\n" + m.statusLine()
 }

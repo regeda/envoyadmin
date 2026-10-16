@@ -90,17 +90,6 @@ func TestBannerUnbrokenLongTokenAndHugeText(t *testing.T) {
 	}
 }
 
-func TestOverlayReplacesOnlyTopLines(t *testing.T) {
-	frame := strings.Join([]string{"l1", "l2", "l3", "l4", "l5"}, "\n")
-	got := strings.Split(overlay(frame, []string{"B1", "B2"}), "\n")
-	if len(got) != 5 || got[0] != "B1" || got[1] != "B2" || got[2] != "l3" || got[4] != "l5" {
-		t.Fatalf("%q", got)
-	}
-	if overlay(frame, nil) != frame {
-		t.Fatal("no banner leaves the frame untouched")
-	}
-}
-
 func TestStatusLine(t *testing.T) {
 	s := renderStatus(60, " 3 clusters · 1 unhealthy", "/ filter · q quit")
 	if strings.Contains(s, "\n") || lipgloss.Width(s) > 60 || !strings.Contains(s, "3 clusters") {
@@ -262,12 +251,6 @@ func TestBannerTrailingNewlineIsNotARow(t *testing.T) {
 	}
 }
 
-func TestOverlayBannerTallerThanFrame(t *testing.T) {
-	got := strings.Split(overlay("l1\nl2", []string{"B1", "B2", "B3"}), "\n")
-	if len(got) != 3 || got[0] != "B1" || got[1] != "B2" || got[2] != "B3" {
-		t.Fatalf("banner rows beyond the frame are appended: %q", got)
-	}
-}
 func TestHeaderTabRowShowsAllTabs(t *testing.T) {
 	tabs := []headerTab{{Label: "Clusters (6)", Active: true}, {Label: "Listeners (!)", Warn: true}}
 	for _, compact := range []bool{false, true} {

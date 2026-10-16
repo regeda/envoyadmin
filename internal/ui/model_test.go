@@ -250,6 +250,9 @@ func TestViewFitsTheTerminal(t *testing.T) {
 			if len(lines) != sz[1] {
 				t.Fatalf("%v err=%v: %d lines, want %d", sz, withErr, len(lines), sz[1])
 			}
+			if !strings.Contains(lines[m.headerRows()-1], "Clusters") {
+				t.Fatalf("%v err=%v: tab row hidden: %q", sz, withErr, lines[m.headerRows()-1])
+			}
 			for _, l := range lines {
 				if lipgloss.Width(l) > sz[0] {
 					t.Fatalf("%v err=%v: line width %d: %q", sz, withErr, lipgloss.Width(l), l)
@@ -259,28 +262,90 @@ func TestViewFitsTheTerminal(t *testing.T) {
 	}
 }
 
-func TestBannerDoesNotMoveContent(t *testing.T) {
-	m := sized(New(testOpts(nil)), 120, 30)
-	m = send(m, snapshotMsg{snap: snap(cl("api", 1, 2), cl("db", 2, 2))})
-	before := strings.Split(m.View(), "\n")
+func TestBannerKeepsHeaderAndShrinksPanes(t *testing.T) {
+	longErr := errors.New(strings.Repeat("context deadline exceeded ", 12))
+	for _, sz := range [][2]int{{120, 30}, {80, 24}, {100, 20}, {80, 12}} {
+		m := sized(New(testOpts(nil)), sz[0], sz[1])
+		m = send(m, snapshotMsg{snap: snap(cl("api", 1, 2), cl("db", 2, 2))})
+		before := m.paneHeight()
 
-	m = send(m, snapshotMsg{err: errors.New(strings.Repeat("multi line error ", 30))})
-	after := strings.Split(m.View(), "\n")
-	if len(before) != len(after) {
-		t.Fatal("banner changed the frame height")
-	}
-	rows := len(bannerLines(m.bannerText(), 120, maxBannerRows))
-	if rows < 2 || rows > maxBannerRows {
-		t.Fatalf("banner rows = %d", rows)
-	}
-	for i := rows; i < len(before); i++ {
-		// status bar text is unchanged by the error, and panes must not move
-		if before[i] != after[i] {
-			t.Fatalf("line %d moved:\n%q\n%q", i, before[i], after[i])
+		m = send(m, snapshotMsg{err: longErr})
+		lines := strings.Split(m.View(), "\n")
+		if len(lines) != sz[1] {
+			t.Fatalf("%v: %d lines, want %d", sz, len(lines), sz[1])
+		}
+		hr, rows := m.headerRows(), len(m.banner())
+		if rows < 2 {
+			t.Fatalf("%v: banner rows = %d", sz, rows)
+		}
+		for _, tab := range []string{"Clusters", "Listeners", "Secrets"} {
+			if !strings.Contains(lines[hr-1], tab) {
+				t.Fatalf("%v: tab row lost %q: %q", sz, tab, lines[hr-1])
+			}
+		}
+		if !strings.Contains(lines[hr], "disconnected") {
+			t.Fatalf("%v: banner should follow the tab row: %q", sz, lines[hr])
+		}
+		if got := m.paneHeight(); got != before-rows {
+			t.Fatalf("%v: pane height %d, want %d", sz, got, before-rows)
+		}
+
+		m = send(m, key("x"))
+		if m.bannerVisible() || m.paneHeight() != before {
+			t.Fatalf("%v: dismissing must give the rows back (pane height %d, want %d)", sz, m.paneHeight(), before)
+		}
+		if n := len(strings.Split(m.View(), "\n")); n != sz[1] {
+			t.Fatalf("%v: %d lines after dismissal, want %d", sz, n, sz[1])
 		}
 	}
-	if !strings.Contains(after[0], "disconnected") {
-		t.Fatalf("banner first row: %q", after[0])
+}
+
+func TestBannerKeepsFilterAndSelection(t *testing.T) {
+	m := sized(New(testOpts(nil)), 120, 30)
+	m = send(m, snapshotMsg{snap: snap(cl("alpha", 1, 1), cl("beta", 1, 1), cl("delta", 1, 1))})
+	m = send(m, key("/"))
+	m = send(m, key("d"))
+	for _, step := range []tea.Msg{snapshotMsg{err: errors.New("context deadline exceeded")}, snapshotMsg{snap: snap(cl("alpha", 1, 1), cl("beta", 1, 1), cl("delta", 1, 1))}} {
+		m = send(m, step)
+		if !m.cur().list.filtering {
+			t.Fatal("the filter must stay open")
+		}
+		if it, ok := m.cur().list.Selected(); !ok || it.Key() != "delta" {
+			t.Fatalf("selection lost: %v %v", it, ok)
+		}
+		if v := m.View(); !strings.Contains(v, "delta") {
+			t.Fatalf("filtered row missing:\n%s", v)
+		}
+	}
+}
+
+func TestBannerFollowsResize(t *testing.T) {
+	m := sized(New(testOpts(nil)), 120, 30)
+	m = send(m, snapshotMsg{snap: snap(cl("api", 1, 2))})
+	m = send(m, snapshotMsg{err: errors.New(strings.Repeat("context deadline exceeded ", 12))})
+	for _, sz := range [][2]int{{100, 26}, {80, 14}} {
+		m = sized(m, sz[0], sz[1])
+		if n := len(strings.Split(m.View(), "\n")); n != sz[1] {
+			t.Fatalf("%v: %d lines", sz, n)
+		}
+		want := max(sz[1]-m.headerRows()-len(m.banner())-footerRows, 1)
+		if got := m.paneHeight(); got != want {
+			t.Fatalf("%v: pane height %d, want %d", sz, got, want)
+		}
+	}
+}
+
+func TestBannerKeepsDetailFocus(t *testing.T) {
+	m := sized(New(testOpts(nil)), 120, 30)
+	m = send(m, snapshotMsg{snap: snap(cl("alpha", 1, 1), cl("beta", 1, 1))})
+	m = send(m, key("down"))
+	m = send(m, key("enter"))
+	for _, step := range []tea.Msg{snapshotMsg{err: errors.New("context deadline exceeded")}, snapshotMsg{snap: snap(cl("alpha", 1, 1), cl("beta", 1, 1))}} {
+		m = send(m, step)
+		it, ok := m.cur().list.Selected()
+		if m.focus != focusDetail || !ok || it.Key() != "beta" {
+			t.Fatalf("focus=%v selected=%v ok=%v", m.focus, it, ok)
+		}
 	}
 }
 
@@ -358,6 +423,9 @@ func TestFirstFetchFailureShowsBannerWithoutSnapshot(t *testing.T) {
 	}
 	if strings.Contains(v, "no clusters") {
 		t.Fatalf("list must keep waiting until the first success:\n%s", v)
+	}
+	if !strings.Contains(strings.Split(v, "\n")[m.headerRows()-1], "Clusters") {
+		t.Fatalf("tab row must stay visible:\n%s", v)
 	}
 }
 

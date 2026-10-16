@@ -118,23 +118,6 @@ func bannerLines(text string, width, maxRows int) []string {
 	return out
 }
 
-// overlay paints banner over the first len(banner) lines of frame. The frame
-// was laid out as if the banner did not exist, so nothing below it moves.
-func overlay(frame string, banner []string) string {
-	if len(banner) == 0 {
-		return frame
-	}
-	lines := strings.Split(frame, "\n")
-	for i, b := range banner {
-		if i < len(lines) {
-			lines[i] = b
-		} else {
-			lines = append(lines, b)
-		}
-	}
-	return strings.Join(lines, "\n")
-}
-
 func renderStatus(width int, left, right string) string {
 	return dimStyle.Render(joinEnds(left, right, width))
 }
