@@ -11,16 +11,22 @@ Three tabs, each with a list on the left and details on the right. `Tab` switche
 - **Endpoints** (`e`): address, health flags (`FAILED_ACTIVE_HC`, `FAILED_OUTLIER_CHECK`, `EDS_STATUS_UNHEALTHY`, ...), weight, zone, and `rq_active` / `rq_error` / `cx_active`.
 - **Config** (`c`): the cluster's config from `/config_dump` as highlighted, line-numbered YAML, with `version_info` and `last_updated`.
 
+![Clusters](/screenshots/clusters.png)
+
 ### Listeners
 - **State at a glance.** `●` active or static, `◐` warming or draining, `✗` rejected update. Problems sort first.
 - **Overview** (`o`): bind address, state, last update, the error of a rejected update (noting when an earlier configuration is still serving), and every filter chain with its match and filters. HTTP filters show as a tree (`├ cors`, `└ router`).
 - **Config** (`c`): the listener as numbered YAML.
+
+![Listeners](/screenshots/listeners.png)
 
 ### Secrets
 - **Every loaded secret** with its state (`●` active or static, `◐` warming, `✗` certificate expired), name and `version_info`. Warming and expired ones sort first.
 - **Overview** (`o`): kind (`tls_certificate`, `validation_context`, ...), version, last update, the certificate's serial, SANs and expiry, and the clusters and listeners that use the secret.
 - **Safe by design.** Secret content is never fetched or shown. Only the public certificate is read.
 - **Cross-references.** Cluster and listener overviews list the secrets they use and mark any that Envoy has not loaded as `(not loaded)`.
+
+![Secrets](/screenshots/secrets.png)
 
 ### Everywhere
 - **Fuzzy filter** with `/` on every list (by name, and by address on Listeners).
