@@ -1,0 +1,24 @@
+#!/bin/sh
+# Stub for install_test.sh, used only on a PATH without curl. Supports:
+#   wget -S --spider <url>        prints a redirect to $FAKE_LATEST_URL on stderr
+#   wget -q -O <file> <url>       copies $FIXTURE_DIR/<basename of url>
+out=
+spider=
+url=
+while [ $# -gt 0 ]; do
+  case $1 in
+    -O) out=$2; shift ;;
+    --spider) spider=1 ;;
+    -*) ;;
+    *) url=$1 ;;
+  esac
+  shift
+done
+printf '%s\n' "$url" >>"$FIXTURE_DIR/curl.log"
+if [ -n "$spider" ]; then
+  printf '  HTTP/1.1 302 Found\n  Location: %s\n  HTTP/1.1 200 OK\n' "$FAKE_LATEST_URL" >&2
+  exit 0
+fi
+src=$FIXTURE_DIR/$(basename "$url")
+[ -f "$src" ] || exit 8
+cp "$src" "$out"

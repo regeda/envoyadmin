@@ -1,0 +1,8 @@
+#!/bin/sh
+# Stub for install_test.sh: records its arguments and runs them. It cannot
+# elevate, so FAKE_SUDO_UNLOCK names a folder it makes writable first.
+printf '%s\n' "$*" >>"$FIXTURE_DIR/sudo.log"
+if [ -n "${FAKE_SUDO_UNLOCK:-}" ]; then
+  chmod u+w "$FAKE_SUDO_UNLOCK"
+fi
+exec "$@"
