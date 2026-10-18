@@ -94,6 +94,42 @@ cleanup() {
   fi
 }
 
+# use_sudo is 1 when the install needs root: the folder, or the nearest
+# existing parent when it has to be created, is not writable.
+needs_sudo() {
+  ns_dir=$1
+  while [ ! -d "$ns_dir" ]; do
+    ns_dir=$(dirname "$ns_dir")
+  done
+  if [ -w "$ns_dir" ]; then
+    use_sudo=0
+  else
+    use_sudo=1
+  fi
+}
+
+as_root() {
+  if [ "$use_sudo" = 1 ]; then
+    sudo "$@"
+  else
+    "$@"
+  fi
+}
+
+install_binary() {
+  ib_src=$1
+  ib_dir=$2
+  needs_sudo "$ib_dir"
+  if [ "$use_sudo" = 1 ] && ! command -v sudo >/dev/null 2>&1; then
+    echo "install.sh: $ib_dir is not writable and sudo is not available; set INSTALL_DIR to a writable folder" >&2
+    return 1
+  fi
+  if ! as_root mkdir -p "$ib_dir" || ! as_root install -m 0755 "$ib_src" "$ib_dir/envoyadmin"; then
+    echo "install.sh: could not install into $ib_dir; set INSTALL_DIR to a writable folder" >&2
+    return 1
+  fi
+}
+
 main() {
   os=$(detect_os)
   arch=$(detect_arch)
@@ -113,6 +149,11 @@ main() {
   done
   verify_checksum "$TMPDIR_INSTALL/$archive" "$TMPDIR_INSTALL/checksums.txt"
   tar -xzf "$TMPDIR_INSTALL/$archive" -C "$TMPDIR_INSTALL" envoyadmin
+
+  dir=${INSTALL_DIR:-/usr/local/bin}
+  install_binary "$TMPDIR_INSTALL/envoyadmin" "$dir"
+  installed=$("$dir/envoyadmin" version) || installed=unknown
+  echo "installed $dir/envoyadmin ($installed)"
 }
 
 main "$@"
