@@ -1,0 +1,24 @@
+#!/bin/sh
+# Stub for install_test.sh. Supports two call shapes:
+#   curl ... -o <file> <url>                    copies $FIXTURE_DIR/<basename of url>
+#   curl ... -o /dev/null -w '%{url_effective}' <url>   prints $FAKE_LATEST_URL
+out=
+fmt=
+url=
+while [ $# -gt 0 ]; do
+  case $1 in
+    -o) out=$2; shift ;;
+    -w) fmt=$2; shift ;;
+    -*) ;;
+    *) url=$1 ;;
+  esac
+  shift
+done
+printf '%s\n' "$url" >>"$FIXTURE_DIR/curl.log"
+if [ -n "$fmt" ]; then
+  printf '%s' "$FAKE_LATEST_URL"
+  exit 0
+fi
+src=$FIXTURE_DIR/$(basename "$url")
+[ -f "$src" ] || exit 22
+cp "$src" "$out"

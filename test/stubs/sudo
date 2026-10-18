@@ -1,0 +1,4 @@
+#!/bin/sh
+# Stub for install_test.sh: records its arguments and runs them.
+printf '%s\n' "$*" >>"$FIXTURE_DIR/sudo.log"
+exec "$@"
