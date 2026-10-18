@@ -36,7 +36,7 @@ fetch_url_effective() {
   if command -v curl >/dev/null 2>&1; then
     curl -fsSLI -o /dev/null -w '%{url_effective}' "$1"
   else
-    wget --max-redirect=0 -S -O /dev/null "$1" 2>&1 | awk 'tolower($1) == "location:" { print $2 }' | tail -n 1
+    wget -S --spider "$1" 2>&1 | awk 'tolower($1) == "location:" { print $2 }' | tail -n 1
   fi
 }
 

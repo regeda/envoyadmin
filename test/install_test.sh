@@ -39,14 +39,14 @@ run_install() {
   STATUS=$?
 }
 
-# no_sudo_path: a PATH holding the stubs for curl and uname and the tools the
-# script needs, but no sudo.
-no_sudo_path() {
-  _dir=$T/nosudo
+# restricted_path [curl|wget]: a PATH holding the stubs for uname and the chosen
+# downloader and the tools the script needs, but no sudo.
+restricted_path() {
+  _dir=$T/restricted
   mkdir -p "$_dir"
-  ln -s "$ROOT/test/stubs/curl" "$_dir/curl"
+  ln -s "$ROOT/test/stubs/${1:-curl}" "$_dir/${1:-curl}"
   ln -s "$ROOT/test/stubs/uname" "$_dir/uname"
-  for _tool in cp sh tar awk tail basename dirname mktemp rm mkdir install sha256sum shasum cat chmod; do
+  for _tool in cp sh tar gzip awk tail basename dirname mktemp rm mkdir install sha256sum shasum cat chmod; do
     _path=$(command -v "$_tool") && ln -s "$_path" "$_dir/$_tool"
   done
   echo "$_dir"
@@ -255,10 +255,18 @@ test_no_sudo_available() {
   make_release v1.2.3 linux amd64
   mkdir "$T/bin"
   chmod 555 "$T/bin"
-  run_install PATH="$(no_sudo_path)"
+  run_install PATH="$(restricted_path)"
   assert_eq "status" 1 "$STATUS"
   assert_contains "output" "INSTALL_DIR" "$OUT"
   if [ -e "$T/bin/envoyadmin" ]; then fail "nothing may be installed"; else ok; fi
+}
+
+test_wget_fallback() {
+  new_case wget_fallback
+  make_release v1.2.3 linux amd64
+  run_install PATH="$(restricted_path wget)"
+  assert_eq "status" 0 "$STATUS"
+  assert_eq "last line" "installed $T/bin/envoyadmin (v1.2.3)" "$(printf '%s\n' "$OUT" | tail -n 1)"
 }
 
 test_piped_stdin() {
@@ -293,6 +301,7 @@ test_creates_missing_dir_via_sudo
 test_dir_with_space
 test_overwrites_existing
 test_no_sudo_available
+test_wget_fallback
 test_piped_stdin
 test_default_dir
 
