@@ -1,3 +1,5 @@
 bin/
 coverage.out
 .superpowers/
+docs/superpowers/
+dist/

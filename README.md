@@ -29,6 +29,14 @@ Three tabs, each with a list on the left and details on the right. `Tab` switche
 
 ## Install and run
 
+Download a binary for Linux or macOS (amd64 or arm64) from the [GitHub releases](https://github.com/regeda/envoyadmin/releases), or install with Go:
+
+```sh
+go install github.com/regeda/envoyadmin/cmd/envoyadmin@latest
+```
+
+Or build from source:
+
 ```sh
 make build            # bin/envoyadmin
 make run              # try it with the built-in fake Envoy, no cluster needed
@@ -99,3 +107,7 @@ make test-update   # regenerate the teatest golden files in internal/ui/testdata
 make check         # gofmt check + lint + tests
 make help          # all targets
 ```
+
+## License
+
+MIT, see [LICENSE](LICENSE).
