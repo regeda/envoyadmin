@@ -25,4 +25,5 @@ changelog:
 
 release:
   mode: keep-existing
+  prerelease: auto
   replace_existing_artifacts: true
