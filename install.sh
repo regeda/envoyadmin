@@ -29,10 +29,90 @@ detect_arch() {
   esac
 }
 
+REPO=regeda/envoyadmin
+TMPDIR_INSTALL=
+
+fetch_url_effective() {
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSLI -o /dev/null -w '%{url_effective}' "$1"
+  else
+    wget --max-redirect=0 -S -O /dev/null "$1" 2>&1 | awk 'tolower($1) == "location:" { print $2 }' | tail -n 1
+  fi
+}
+
+download() {
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL -o "$2" "$1"
+  else
+    wget -q -O "$2" "$1"
+  fi
+}
+
+resolve_version() {
+  if [ -n "${VERSION:-}" ]; then
+    case $VERSION in
+      v*) echo "$VERSION" ;;
+      *) echo "v$VERSION" ;;
+    esac
+    return 0
+  fi
+  latest_url=$(fetch_url_effective "https://github.com/$REPO/releases/latest") || latest_url=
+  case $latest_url in
+    */releases/tag/*) echo "${latest_url##*/}" ;;
+    *)
+      echo "install.sh: could not find a stable release; set VERSION, for example VERSION=v0.1.0" >&2
+      return 1
+      ;;
+  esac
+}
+
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{ print $1 }'
+  else
+    shasum -a 256 "$1" | awk '{ print $1 }'
+  fi
+}
+
+verify_checksum() {
+  vc_file=$(basename "$1")
+  vc_want=$(awk -v f="$vc_file" '$2 == f { print $1 }' "$2")
+  if [ -z "$vc_want" ]; then
+    echo "install.sh: checksum for $vc_file is missing from checksums.txt" >&2
+    return 1
+  fi
+  vc_got=$(sha256_of "$1")
+  if [ "$vc_want" != "$vc_got" ]; then
+    echo "install.sh: checksum mismatch for $vc_file (want $vc_want, got $vc_got)" >&2
+    return 1
+  fi
+}
+
+cleanup() {
+  if [ -n "$TMPDIR_INSTALL" ]; then
+    rm -rf "$TMPDIR_INSTALL"
+  fi
+}
+
 main() {
   os=$(detect_os)
   arch=$(detect_arch)
-  echo "install.sh: detected ${os}_${arch}"
+  tag=$(resolve_version)
+  version=${tag#v}
+  archive=envoyadmin_${version}_${os}_${arch}.tar.gz
+  base=https://github.com/$REPO/releases/download/$tag
+
+  TMPDIR_INSTALL=$(mktemp -d)
+  trap cleanup EXIT
+
+  for file in "$archive" checksums.txt; do
+    if ! download "$base/$file" "$TMPDIR_INSTALL/$file"; then
+      echo "install.sh: failed to download $base/$file; does release $tag exist?" >&2
+      return 1
+    fi
+  done
+  verify_checksum "$TMPDIR_INSTALL/$archive" "$TMPDIR_INSTALL/checksums.txt"
+  tar -xzf "$TMPDIR_INSTALL/$archive" -C "$TMPDIR_INSTALL" envoyadmin
 }
 
 main "$@"
