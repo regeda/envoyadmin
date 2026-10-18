@@ -29,7 +29,19 @@ Three tabs, each with a list on the left and details on the right. `Tab` switche
 
 ## Install and run
 
-Download a binary for Linux or macOS (amd64 or arm64) from the [GitHub releases](https://github.com/regeda/envoyadmin/releases), or install with Go:
+Install the latest release for Linux or macOS (amd64 or arm64) into `/usr/local/bin`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/regeda/envoyadmin/main/install.sh | sh
+```
+
+The script picks the binary for your OS and CPU, checks it against the release checksums, and uses `sudo` only if the folder is not writable. Pin a version or change the folder with `VERSION` and `INSTALL_DIR`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/regeda/envoyadmin/main/install.sh | VERSION=v0.1.0 INSTALL_DIR=$HOME/.local/bin sh
+```
+
+Or download a binary from the [GitHub releases](https://github.com/regeda/envoyadmin/releases), or install with Go:
 
 ```sh
 go install github.com/regeda/envoyadmin/cmd/envoyadmin@latest

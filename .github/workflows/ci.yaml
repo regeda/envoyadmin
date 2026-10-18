@@ -21,3 +21,10 @@ jobs:
         with:
           go-version-file: go.mod
       - run: make check
+
+  install-script:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: shellcheck install.sh test/install_test.sh test/stubs/*
+      - run: sh test/install_test.sh
