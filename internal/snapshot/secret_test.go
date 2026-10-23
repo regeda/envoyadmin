@@ -71,11 +71,11 @@ func (s secretsFail) SecretConfigs(context.Context) ([]admin.SecretConfig, error
 func TestSecretsFailureDegradesInline(t *testing.T) {
 	srv := httptest.NewServer(demo.NewServer(demo.Degraded()))
 	t.Cleanup(srv.Close)
-	real, err := admin.NewHTTP(srv.URL, time.Second)
+	client, err := admin.NewHTTP(srv.URL, time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := Fetch(context.Background(), secretsFail{Client: real, err: errors.New("boom")})
+	s, err := Fetch(context.Background(), secretsFail{Client: client, err: errors.New("boom")})
 	if err != nil {
 		t.Fatalf("a secrets failure must not fail the snapshot: %v", err)
 	}

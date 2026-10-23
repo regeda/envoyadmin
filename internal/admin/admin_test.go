@@ -56,13 +56,20 @@ func newClient(t *testing.T, h http.Handler, timeout time.Duration) *HTTP {
 	return c
 }
 
+func writeBody(t *testing.T, w http.ResponseWriter, body string) {
+	t.Helper()
+	if _, err := w.Write([]byte(body)); err != nil {
+		t.Error(err)
+	}
+}
+
 func TestClusters(t *testing.T) {
 	c := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/clusters" || r.URL.Query().Get("format") != "json" {
 			http.Error(w, "bad request "+r.URL.String(), 400)
 			return
 		}
-		_, _ = w.Write([]byte(realClusters))
+		writeBody(t, w, realClusters)
 	}), time.Second)
 
 	got, err := c.Clusters(context.Background())
@@ -83,9 +90,9 @@ func TestClusterConfigsMergesDynamicAndStatic(t *testing.T) {
 	c := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Query().Get("resource") {
 		case "dynamic_active_clusters":
-			_, _ = w.Write([]byte(perElementDynamic))
+			writeBody(t, w, perElementDynamic)
 		case "static_clusters":
-			_, _ = w.Write([]byte(perElementStatic))
+			writeBody(t, w, perElementStatic)
 		default:
 			http.Error(w, "bad resource", 400)
 		}
@@ -120,7 +127,7 @@ func TestClusterConfigsMergesDynamicAndStatic(t *testing.T) {
 
 func TestServerInfo(t *testing.T) {
 	c := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"version":"abc/1.31.0/Clean/RELEASE","state":"LIVE","unknown":true}`))
+		writeBody(t, w, `{"version":"abc/1.31.0/Clean/RELEASE","state":"LIVE","unknown":true}`)
 	}), time.Second)
 	info, err := c.ServerInfo(context.Background())
 	if err != nil || info.GetVersion() != "abc/1.31.0/Clean/RELEASE" {
@@ -137,7 +144,7 @@ func TestErrors(t *testing.T) {
 		}
 	})
 	t.Run("invalid json", func(t *testing.T) {
-		c := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("{nope")) }), time.Second)
+		c := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { writeBody(t, w, "{nope") }), time.Second)
 		if _, err := c.Clusters(context.Background()); err == nil || !strings.Contains(err.Error(), "GET /clusters") {
 			t.Fatalf("got %v", err)
 		}
@@ -161,7 +168,7 @@ func TestErrors(t *testing.T) {
 		}
 	})
 	t.Run("cancelled context", func(t *testing.T) {
-		c := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(realClusters)) }), time.Second)
+		c := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { writeBody(t, w, realClusters) }), time.Second)
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 		if _, err := c.Clusters(ctx); err == nil {

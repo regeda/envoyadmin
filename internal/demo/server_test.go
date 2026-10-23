@@ -19,8 +19,11 @@ func get(t *testing.T, url string) (int, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = resp.Body.Close() }()
-	b, _ := io.ReadAll(resp.Body)
+	defer resp.Body.Close() //nolint:errcheck // test response body
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
 	return resp.StatusCode, string(b)
 }
 
@@ -195,7 +198,7 @@ func TestListenerDumpsUsePerElementShape(t *testing.T) {
 	names := map[string]map[string]any{}
 	nameless := 0
 	for _, c := range d.Configs {
-		if !strings.HasSuffix(c["@type"].(string), "ListenersConfigDump.DynamicListener") {
+		if typ, ok := c["@type"].(string); !ok || !strings.HasSuffix(typ, "ListenersConfigDump.DynamicListener") {
 			t.Fatalf("element type %v", c["@type"])
 		}
 		name, ok := c["name"].(string)
@@ -236,7 +239,7 @@ func TestListenerDumpsUsePerElementShape(t *testing.T) {
 	if es["last_update_attempt"] == nil {
 		t.Fatal("the named element carries last_update_attempt, as Envoy does")
 	}
-	if !strings.HasSuffix(es["details"].(string), "\n") {
+	if details, ok := es["details"].(string); !ok || !strings.HasSuffix(details, "\n") {
 		t.Fatal("details ends with a newline, as Envoy's do")
 	}
 	if _, ok := names["bad-update"]["active_state"]; !ok {
@@ -276,24 +279,24 @@ func TestHCMChainsCarryTypedConfigWithHTTPFilters(t *testing.T) {
 	dyn, _ := Degraded().ConfigDumpJSON("dynamic_listeners")
 	var dump struct {
 		Configs []struct {
-			Name   string `json:"name"`
 			Active *struct {
 				Listener struct {
 					Chains []struct {
 						Filters []struct {
-							Name        string `json:"name"`
 							TypedConfig *struct {
 								Type        string `json:"@type"`
 								StatPrefix  string `json:"stat_prefix"`
 								HTTPFilters []struct {
-									Name        string            `json:"name"`
 									TypedConfig map[string]string `json:"typed_config"`
+									Name        string            `json:"name"`
 								} `json:"http_filters"`
 							} `json:"typed_config"`
+							Name string `json:"name"`
 						} `json:"filters"`
 					} `json:"filter_chains"`
 				} `json:"listener"`
 			} `json:"active_state"`
+			Name string `json:"name"`
 		} `json:"configs"`
 	}
 	if err := json.Unmarshal(dyn, &dump); err != nil {
@@ -360,12 +363,21 @@ func TestScenarioListenerCounts(t *testing.T) {
 	}
 }
 
+func sni(t *testing.T, c Chain) []string {
+	t.Helper()
+	names, ok := c.Match["server_names"].([]string)
+	if !ok {
+		t.Fatal("server_names is not a []string")
+	}
+	return names
+}
+
 func TestUpdateDeepCopiesListeners(t *testing.T) {
 	sc := Degraded()
 	s := NewServer(sc)
 	origName := sc.Listeners[0].Name
 	origChain := sc.Listeners[0].Chains[0].Match["transport_protocol"]
-	origSNI := sc.Listeners[0].Chains[1].Match["server_names"].([]string)[0]
+	origSNI := sni(t, sc.Listeners[0].Chains[1])[0]
 	origFilter := sc.Listeners[0].Chains[0].Filters[0]
 	origDefault := sc.Listeners[0].Default.Filters[0]
 	origDefaultName := sc.Listeners[0].Default.Name
@@ -375,7 +387,7 @@ func TestUpdateDeepCopiesListeners(t *testing.T) {
 		l := &x.Listeners[0]
 		l.Name = "mutated"
 		l.Chains[0].Match["transport_protocol"] = "raw_buffer"
-		l.Chains[1].Match["server_names"].([]string)[0] = "mutated"
+		sni(t, l.Chains[1])[0] = "mutated"
 		l.Chains[0].Filters[0] = "mutated"
 		l.Default.Filters[0] = "mutated"
 		l.Default.Name = "mutated"
@@ -384,7 +396,7 @@ func TestUpdateDeepCopiesListeners(t *testing.T) {
 
 	l := sc.Listeners[0]
 	if l.Name != origName || l.Chains[0].Match["transport_protocol"] != origChain ||
-		l.Chains[1].Match["server_names"].([]string)[0] != origSNI ||
+		sni(t, l.Chains[1])[0] != origSNI ||
 		l.Chains[0].Filters[0] != origFilter || l.Default.Filters[0] != origDefault ||
 		l.Default.Name != origDefaultName || l.Chains[0].HTTPFilters[0] != origHTTP {
 		t.Fatal("Update must not mutate the scenario passed to SetScenario/NewServer")

@@ -25,21 +25,19 @@ const (
 // SecretConfig is one secret's metadata. It deliberately has no field for the
 // secret body: the decoder drops it, so no later code can show it.
 type SecretConfig struct {
-	Name, VersionInfo string
-	// Kind is the one populated field of the secret ("tls_certificate",
-	// "validation_context", "session_ticket_keys", "generic_secret").
-	Kind        string
 	LastUpdated time.Time
+	Cert        *CertFacts
+	Name        string
+	VersionInfo string
+	Kind        string
 	State       SecretState
-	// Cert is nil when the secret has no readable inline certificate.
-	Cert *CertFacts
 }
 
 type rawSecret struct {
+	Secret      map[string]json.RawMessage `json:"secret"`
 	Name        string                     `json:"name"`
 	VersionInfo string                     `json:"version_info"`
 	LastUpdated string                     `json:"last_updated"`
-	Secret      map[string]json.RawMessage `json:"secret"`
 }
 
 type secretsDump struct {
@@ -84,49 +82,41 @@ func secretConfig(r rawSecret, state SecretState) (SecretConfig, bool) {
 // /config_dump has one wrapped SecretsConfigDump; the list matching state is
 // taken from it. Anything unrecognised or malformed is skipped, never fatal.
 func decodeSecretConfigs(body []byte, state SecretState) ([]SecretConfig, error) {
-	var dump struct {
-		Configs []json.RawMessage `json:"configs"`
-	}
-	if err := json.Unmarshal(body, &dump); err != nil {
-		return nil, err
+	var out []SecretConfig
+	err := walkConfigs(body, func(raw json.RawMessage, typ string) {
+		out = append(out, secretElements(raw, typ, state)...)
+	})
+	return out, err
+}
+
+// secretElements decodes one configs[] element into zero or more secrets.
+func secretElements(raw json.RawMessage, typ string, state SecretState) []SecretConfig {
+	var list []rawSecret
+	switch {
+	case strings.HasSuffix(typ, typeDynamicSecret), strings.HasSuffix(typ, typeStaticSecret):
+		var r rawSecret
+		if json.Unmarshal(raw, &r) != nil {
+			return nil
+		}
+		list = []rawSecret{r}
+	case strings.HasSuffix(typ, typeSecretsDump):
+		var sd secretsDump
+		if json.Unmarshal(raw, &sd) != nil {
+			return nil
+		}
+		list = sd.Active
+		switch state {
+		case SecretWarming:
+			list = sd.Warming
+		case SecretStatic:
+			list = sd.Static
+		}
 	}
 	var out []SecretConfig
-	add := func(r rawSecret) {
+	for _, r := range list {
 		if sc, ok := secretConfig(r, state); ok {
 			out = append(out, sc)
 		}
 	}
-	for _, raw := range dump.Configs {
-		var obj map[string]json.RawMessage
-		if json.Unmarshal(raw, &obj) != nil {
-			continue
-		}
-		var typ string
-		if json.Unmarshal(obj["@type"], &typ) != nil {
-			continue
-		}
-		switch {
-		case strings.HasSuffix(typ, typeDynamicSecret), strings.HasSuffix(typ, typeStaticSecret):
-			var r rawSecret
-			if json.Unmarshal(raw, &r) == nil {
-				add(r)
-			}
-		case strings.HasSuffix(typ, typeSecretsDump):
-			var sd secretsDump
-			if json.Unmarshal(raw, &sd) != nil {
-				continue
-			}
-			list := sd.Active
-			switch state {
-			case SecretWarming:
-				list = sd.Warming
-			case SecretStatic:
-				list = sd.Static
-			}
-			for _, r := range list {
-				add(r)
-			}
-		}
-	}
-	return out, nil
+	return out
 }

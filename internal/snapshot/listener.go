@@ -31,31 +31,28 @@ type Filter struct {
 }
 
 type FilterChain struct {
-	Label   string
-	Match   []string
-	Filters []Filter
-	// HTTPFilters are the http_filters[] of the first HttpConnectionManager
-	// filter in the chain.
+	Routes      *RouteRef
+	Label       string
+	Match       []string
+	Filters     []Filter
 	HTTPFilters []Filter
-	// Routes is the route source of the first HttpConnectionManager: nil when
-	// the chain has none or it names no route config.
-	Routes *RouteRef
-	TLS    bool
-	hcm    bool // the chain has an HttpConnectionManager
-	scoped bool // its HttpConnectionManager uses scoped_routes
+	TLS         bool
+	hcm         bool
+	scoped      bool
 }
 
 type Listener struct {
-	Name, Address string
-	State         ListenerStatus
-	Static        bool
-	VersionInfo   string
-	LastUpdated   time.Time
-	ErrorDetails  string
-	ServingOld    bool // a rejected (error) update with an older version still active
-	Chains        []FilterChain
-	Config        ConfigInfo
-	Secrets       []SecretUse
+	LastUpdated  time.Time
+	Name         string
+	Address      string
+	VersionInfo  string
+	ErrorDetails string
+	Chains       []FilterChain
+	Secrets      []SecretUse
+	Config       ConfigInfo
+	State        ListenerStatus
+	Static       bool
+	ServingOld   bool
 }
 
 // StateText is what the UI shows: "static" for static listeners.
@@ -71,13 +68,7 @@ func (l Listener) StateText() string {
 // else draining; a listener that only ever failed shows the rejected config.
 func listenerFrom(lc admin.ListenerConfig) Listener {
 	l := Listener{Name: lc.Name, Static: lc.Static}
-	var serving *admin.ListenerState
-	for _, s := range []*admin.ListenerState{lc.Active, lc.Warming, lc.Draining} {
-		if s != nil {
-			serving = s
-			break
-		}
-	}
+	serving := servingState(lc)
 	switch {
 	case lc.Error != nil:
 		l.State = ListenerError
@@ -99,13 +90,38 @@ func listenerFrom(lc admin.ListenerConfig) Listener {
 	} else if lc.Error != nil {
 		l.LastUpdated, shown = lc.Error.LastUpdateAttempt, lc.Error.Listener
 	}
-	if string(shown) == "null" { // "listener": null is as empty as an absent body
-		shown = nil
-	}
+	shown = nullToEmpty(shown)
 	l.Address, l.Chains = parseListener(shown)
 	l.Config = NewConfigInfo(shown)
 	l.Config.VersionInfo, l.Config.LastUpdated, l.Config.Static = l.VersionInfo, l.LastUpdated, l.Static
 	return l
+}
+
+// looseUnmarshal decodes raw into v on a best-effort basis: Envoy's JSON may
+// be partial or of an unexpected shape, and whatever decoded is kept.
+func looseUnmarshal(raw []byte, v any) {
+	if err := json.Unmarshal(raw, v); err != nil {
+		return // keep the partially decoded value
+	}
+}
+
+// servingState is the state that serves traffic: active, else warming, else
+// draining; nil when there is none.
+func servingState(lc admin.ListenerConfig) *admin.ListenerState {
+	for _, s := range []*admin.ListenerState{lc.Active, lc.Warming, lc.Draining} {
+		if s != nil {
+			return s
+		}
+	}
+	return nil
+}
+
+// nullToEmpty makes "listener": null as empty as an absent body.
+func nullToEmpty(raw json.RawMessage) json.RawMessage {
+	if string(raw) == "null" {
+		return nil
+	}
+	return raw
 }
 
 func listenerSeverity(s ListenerStatus) int {
@@ -139,7 +155,7 @@ func parseListener(raw json.RawMessage) (address string, chains []FilterChain) {
 		FilterChains []json.RawMessage `json:"filter_chains"`
 		Default      json.RawMessage   `json:"default_filter_chain"`
 	}
-	_ = json.Unmarshal(raw, &l)
+	looseUnmarshal(raw, &l)
 	for i, c := range l.FilterChains {
 		chains = append(chains, parseChain(c, fmt.Sprintf("#%d", i+1)))
 	}
@@ -151,18 +167,18 @@ func parseListener(raw json.RawMessage) (address string, chains []FilterChain) {
 
 func parseAddress(raw json.RawMessage) string {
 	var a struct {
-		Socket struct {
-			Address string          `json:"address"`
-			Port    json.RawMessage `json:"port_value"`
-		} `json:"socket_address"`
 		Pipe struct {
 			Path string `json:"path"`
 		} `json:"pipe"`
 		Internal struct {
 			Name string `json:"server_listener_name"`
 		} `json:"envoy_internal_address"`
+		Socket struct {
+			Address string          `json:"address"`
+			Port    json.RawMessage `json:"port_value"`
+		} `json:"socket_address"`
 	}
-	_ = json.Unmarshal(raw, &a)
+	looseUnmarshal(raw, &a)
 	switch {
 	case a.Socket.Address != "":
 		port := numStr(a.Socket.Port)
@@ -188,7 +204,7 @@ func shortType(typed json.RawMessage) string {
 	var t struct {
 		Type string `json:"@type"`
 	}
-	_ = json.Unmarshal(typed, &t)
+	looseUnmarshal(typed, &t)
 	return t.Type[strings.LastIndexAny(t.Type, "/.")+1:]
 }
 
@@ -203,7 +219,7 @@ func parseHTTPFilters(typed json.RawMessage) (filters []Filter, isHCM bool) {
 			TypedConfig json.RawMessage `json:"typed_config"`
 		} `json:"http_filters"`
 	}
-	_ = json.Unmarshal(typed, &tc)
+	looseUnmarshal(typed, &tc)
 	if tc.Type != hcmTypeURL {
 		return nil, false
 	}
@@ -229,7 +245,7 @@ func parseRouteRef(typed json.RawMessage) (ref *RouteRef, scoped bool) {
 		Inline json.RawMessage `json:"route_config"`
 		Scoped json.RawMessage `json:"scoped_routes"`
 	}
-	_ = json.Unmarshal(typed, &tc)
+	looseUnmarshal(typed, &tc)
 	switch {
 	case tc.Type != hcmTypeURL:
 		return nil, false
@@ -243,17 +259,17 @@ func parseRouteRef(typed json.RawMessage) (ref *RouteRef, scoped bool) {
 
 func parseChain(raw json.RawMessage, label string) FilterChain {
 	var c struct {
-		Name    string                     `json:"name"`
-		Match   map[string]json.RawMessage `json:"filter_chain_match"`
+		Match           map[string]json.RawMessage `json:"filter_chain_match"`
+		Name            string                     `json:"name"`
+		TransportSocket struct {
+			Name string `json:"name"`
+		} `json:"transport_socket"`
 		Filters []struct {
 			Name        string          `json:"name"`
 			TypedConfig json.RawMessage `json:"typed_config"`
 		} `json:"filters"`
-		TransportSocket struct {
-			Name string `json:"name"`
-		} `json:"transport_socket"`
 	}
-	_ = json.Unmarshal(raw, &c)
+	looseUnmarshal(raw, &c)
 	fc := FilterChain{Label: label, Match: matchParts(c.Match), TLS: strings.Contains(c.TransportSocket.Name, "tls")}
 	if label != "default" && c.Name != "" {
 		fc.Label = c.Name
@@ -295,13 +311,13 @@ func matchParts(m map[string]json.RawMessage) []string {
 
 func strVal(raw json.RawMessage) string {
 	var s string
-	_ = json.Unmarshal(raw, &s)
+	looseUnmarshal(raw, &s)
 	return s
 }
 
 func strList(raw json.RawMessage) []string {
 	var s []string
-	_ = json.Unmarshal(raw, &s)
+	looseUnmarshal(raw, &s)
 	return s
 }
 
@@ -315,7 +331,7 @@ func numStr(raw json.RawMessage) string {
 
 func numList(raw json.RawMessage) []string {
 	var ns []json.Number
-	_ = json.Unmarshal(raw, &ns)
+	looseUnmarshal(raw, &ns)
 	out := make([]string, 0, len(ns))
 	for _, n := range ns {
 		out = append(out, n.String())
@@ -328,7 +344,7 @@ func cidrList(raw json.RawMessage) []string {
 		Prefix string      `json:"address_prefix"`
 		Len    json.Number `json:"prefix_len"`
 	}
-	_ = json.Unmarshal(raw, &cs)
+	looseUnmarshal(raw, &cs)
 	out := make([]string, 0, len(cs))
 	for _, c := range cs {
 		if c.Prefix != "" {

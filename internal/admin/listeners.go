@@ -27,10 +27,10 @@ type ListenerError struct {
 // ListenerConfig is one listener as Envoy emitted it. A static listener has
 // Static set and its single state in Active (empty VersionInfo).
 type ListenerConfig struct {
-	Name                      string
-	Static                    bool
 	Active, Warming, Draining *ListenerState
 	Error                     *ListenerError
+	Name                      string
+	Static                    bool
 }
 
 type rawState struct {
@@ -40,20 +40,20 @@ type rawState struct {
 }
 
 type rawDynamic struct {
-	Name     string    `json:"name"`
 	Active   *rawState `json:"active_state"`
 	Warming  *rawState `json:"warming_state"`
 	Draining *rawState `json:"draining_state"`
 	Error    *struct {
-		Failed  json.RawMessage `json:"failed_configuration"`
 		Attempt string          `json:"last_update_attempt"`
 		Details string          `json:"details"`
+		Failed  json.RawMessage `json:"failed_configuration"`
 	} `json:"error_state"`
+	Name string `json:"name"`
 }
 
 type rawStatic struct {
-	Listener    json.RawMessage `json:"listener"`
 	LastUpdated string          `json:"last_updated"`
+	Listener    json.RawMessage `json:"listener"`
 }
 
 type listenersDump struct {
@@ -62,7 +62,10 @@ type listenersDump struct {
 }
 
 func parseTime(s string) time.Time {
-	t, _ := time.Parse(time.RFC3339Nano, s)
+	t, err := time.Parse(time.RFC3339Nano, s)
+	if err != nil {
+		return time.Time{}
+	}
 	return t
 }
 
@@ -81,8 +84,9 @@ func dynamicListener(d rawDynamic) (ListenerConfig, bool) {
 		var fc struct {
 			Name string `json:"name"`
 		}
-		_ = json.Unmarshal(d.Error.Failed, &fc)
-		name = fc.Name
+		if json.Unmarshal(d.Error.Failed, &fc) == nil {
+			name = fc.Name
+		}
 	}
 	lc := ListenerConfig{
 		Name: name, Active: state(d.Active), Warming: state(d.Warming), Draining: state(d.Draining),
@@ -137,67 +141,65 @@ func mergeListener(a, b ListenerConfig) ListenerConfig {
 // nested arrays; that shape is accepted too, picking the list named by static.
 // Anything unrecognised or malformed is skipped, never fatal.
 func decodeListenerConfigs(body []byte, static bool) ([]ListenerConfig, error) {
-	var dump struct {
-		Configs []json.RawMessage `json:"configs"`
-	}
-	if err := json.Unmarshal(body, &dump); err != nil {
-		return nil, err
-	}
 	var out []ListenerConfig
 	idx := map[string]int{}
-	add := func(lc ListenerConfig) { // elements for the same listener are merged
-		if i, ok := idx[lc.Name]; ok {
-			out[i] = mergeListener(out[i], lc)
-			return
+	err := walkConfigs(body, func(raw json.RawMessage, typ string) {
+		for _, lc := range listenerElements(raw, typ, static) {
+			if i, ok := idx[lc.Name]; ok { // elements for the same listener are merged
+				out[i] = mergeListener(out[i], lc)
+				continue
+			}
+			idx[lc.Name] = len(out)
+			out = append(out, lc)
 		}
-		idx[lc.Name] = len(out)
-		out = append(out, lc)
+	})
+	return out, err
+}
+
+// listenerElements decodes one configs[] element into zero or more listeners.
+func listenerElements(raw json.RawMessage, typ string, static bool) []ListenerConfig {
+	switch {
+	case strings.HasSuffix(typ, typeDynamicListener):
+		var d rawDynamic
+		if json.Unmarshal(raw, &d) != nil {
+			return nil
+		}
+		return dynamicListeners([]rawDynamic{d})
+	case strings.HasSuffix(typ, typeStaticListener):
+		var s rawStatic
+		if json.Unmarshal(raw, &s) != nil {
+			return nil
+		}
+		return staticListeners([]rawStatic{s})
+	case strings.HasSuffix(typ, typeListenersDump):
+		var ld listenersDump
+		if json.Unmarshal(raw, &ld) != nil {
+			return nil
+		}
+		if static {
+			return staticListeners(ld.Static)
+		}
+		return dynamicListeners(ld.Dynamic)
 	}
-	for _, raw := range dump.Configs {
-		var obj map[string]json.RawMessage
-		if json.Unmarshal(raw, &obj) != nil {
-			continue
-		}
-		var typ string
-		if json.Unmarshal(obj["@type"], &typ) != nil {
-			continue
-		}
-		switch {
-		case strings.HasSuffix(typ, typeDynamicListener):
-			var d rawDynamic
-			if json.Unmarshal(raw, &d) != nil {
-				continue
-			}
-			if lc, ok := dynamicListener(d); ok {
-				add(lc)
-			}
-		case strings.HasSuffix(typ, typeStaticListener):
-			var s rawStatic
-			if json.Unmarshal(raw, &s) != nil {
-				continue
-			}
-			if lc, ok := staticListener(s); ok {
-				add(lc)
-			}
-		case strings.HasSuffix(typ, typeListenersDump):
-			var ld listenersDump
-			if json.Unmarshal(raw, &ld) != nil {
-				continue
-			}
-			if static {
-				for _, s := range ld.Static {
-					if lc, ok := staticListener(s); ok {
-						add(lc)
-					}
-				}
-			} else {
-				for _, d := range ld.Dynamic {
-					if lc, ok := dynamicListener(d); ok {
-						add(lc)
-					}
-				}
-			}
+	return nil
+}
+
+func dynamicListeners(list []rawDynamic) []ListenerConfig {
+	var out []ListenerConfig
+	for _, d := range list {
+		if lc, ok := dynamicListener(d); ok {
+			out = append(out, lc)
 		}
 	}
-	return out, nil
+	return out
+}
+
+func staticListeners(list []rawStatic) []ListenerConfig {
+	var out []ListenerConfig
+	for _, s := range list {
+		if lc, ok := staticListener(s); ok {
+			out = append(out, lc)
+		}
+	}
+	return out
 }

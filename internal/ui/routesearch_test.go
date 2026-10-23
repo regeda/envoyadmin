@@ -12,7 +12,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	adminv3 "github.com/envoyproxy/go-control-plane/envoy/admin/v3"
-
 	"github.com/regeda/envoyadmin/internal/admin"
 	"github.com/regeda/envoyadmin/internal/snapshot"
 )
@@ -54,8 +53,8 @@ func inlineListener(name, routeConfig string) admin.ListenerConfig {
 		hcmType+`","route_config":`+routeConfig+`}}`)
 }
 
-func tcpListener(name string) admin.ListenerConfig {
-	return listenerJSON(name, `{"name":"envoy.filters.network.tcp_proxy","typed_config":{"@type":"type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy"}}`)
+func tcpListener() admin.ListenerConfig {
+	return listenerJSON("z-tcp", `{"name":"envoy.filters.network.tcp_proxy","typed_config":{"@type":"type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy"}}`)
 }
 
 func listenerSnap(t *testing.T, ls ...admin.ListenerConfig) snapshot.Snapshot {
@@ -78,10 +77,10 @@ func edgeConfigs() []snapshot.RouteConfig {
 
 // fakeRoutes is a RouteFetcher that counts its calls.
 type fakeRoutes struct {
-	calls int
-	got   []string // listener names asked for
-	cfgs  []snapshot.RouteConfig
 	err   error
+	got   []string
+	cfgs  []snapshot.RouteConfig
+	calls int
 }
 
 func (f *fakeRoutes) fetch(_ context.Context, l snapshot.Listener) ([]snapshot.RouteConfig, error) {
@@ -269,7 +268,7 @@ func TestSearchByCurlMarksWinner(t *testing.T) {
 	if got := strings.Join(hitNames(m), ","); got != "logon,logon-any,catch-all" {
 		t.Fatalf("hits = %s", got)
 	}
-	if !m.search.list.all[0].(routeHitItem).h.Winner {
+	if first, ok := m.search.list.all[0].(routeHitItem); !ok || !first.h.Winner {
 		t.Fatal("the first route is not the winner")
 	}
 }
@@ -293,8 +292,9 @@ func TestSearchByCurlAnyHost(t *testing.T) {
 		t.Fatalf("hits = %s", got)
 	}
 	for _, it := range m.search.list.all {
-		if h := it.(routeHitItem).h; h.Winner || !h.AnyHost {
-			t.Fatalf("hit %+v", h)
+		hit, ok := it.(routeHitItem)
+		if !ok || hit.h.Winner || !hit.h.AnyHost {
+			t.Fatalf("hit %+v", it)
 		}
 	}
 	const status = "3 routes match (any host, no winner)"
@@ -321,7 +321,8 @@ func TestSearchByCurlAnyHost(t *testing.T) {
 
 	// Back to the host form within the pull window: from the cache, a winner.
 	m = query(m, "curl http://h/logon/x")
-	if f.calls != 1 || m.search.status != "3 routes" || !m.search.list.all[0].(routeHitItem).h.Winner {
+	first, ok := m.search.list.all[0].(routeHitItem)
+	if f.calls != 1 || m.search.status != "3 routes" || !ok || !first.h.Winner {
 		t.Fatalf("host form: calls=%d status=%q", f.calls, m.search.status)
 	}
 	if v := send(m, key("tab")).View(); hostAnyRE.MatchString(v) || !strings.Contains(v, "Virtual host") {
@@ -373,7 +374,7 @@ func TestSearchAnyHostStatusCounts(t *testing.T) {
 func TestSearchPullRules(t *testing.T) {
 	c := &clock{now: fixedNow}
 	f := &fakeRoutes{cfgs: edgeConfigs()}
-	m := searchModel(t, listenerSnap(t, rdsListener("a-edge", "edge-routes"), tcpListener("z-tcp")), f, c)
+	m := searchModel(t, listenerSnap(t, rdsListener("a-edge", "edge-routes"), tcpListener()), f, c)
 
 	// Nothing is pulled before the search runs, by keys, ticks or snapshots.
 	m = send(m, key("j"))
@@ -436,7 +437,7 @@ func TestSearchPullRules(t *testing.T) {
 	// An RDS-name change forgets the cache: the next query (inside the
 	// window) pulls again.
 	c.Advance(time.Second)
-	m = send(m, snapshotMsg{snap: listenerSnap(t, rdsListener("a-edge", "edge-routes-v2"), tcpListener("z-tcp"))})
+	m = send(m, snapshotMsg{snap: listenerSnap(t, rdsListener("a-edge", "edge-routes-v2"), tcpListener())})
 	m = query(m, "name catch")
 	if f.calls != 4 {
 		t.Fatalf("an RDS-name change did not forget the cache: calls=%d", f.calls)
@@ -444,8 +445,8 @@ func TestSearchPullRules(t *testing.T) {
 
 	// The listener disappearing forgets the cache too.
 	c.Advance(time.Second)
-	m = send(m, snapshotMsg{snap: listenerSnap(t, tcpListener("z-tcp"))})
-	m = send(m, snapshotMsg{snap: listenerSnap(t, rdsListener("a-edge", "edge-routes-v2"), tcpListener("z-tcp"))})
+	m = send(m, snapshotMsg{snap: listenerSnap(t, tcpListener())})
+	m = send(m, snapshotMsg{snap: listenerSnap(t, rdsListener("a-edge", "edge-routes-v2"), tcpListener())})
 	m = query(m, "name logon")
 	if f.calls != 5 {
 		t.Fatalf("a gone listener kept its cache: calls=%d", f.calls)
@@ -498,7 +499,7 @@ func TestSearchInlineChangeForgetsCache(t *testing.T) {
 func TestSearchErrors(t *testing.T) {
 	c := &clock{now: fixedNow}
 	f := &fakeRoutes{cfgs: edgeConfigs()}
-	m := searchModel(t, listenerSnap(t, rdsListener("a-edge", "edge-routes"), tcpListener("z-tcp")), f, c)
+	m := searchModel(t, listenerSnap(t, rdsListener("a-edge", "edge-routes"), tcpListener()), f, c)
 	m = send(m, key(":"))
 
 	// No argument: the hint, nothing runs.
@@ -706,9 +707,9 @@ func TestSearchInflightShowsLatestQuery(t *testing.T) {
 func TestSearchListenerGone(t *testing.T) {
 	c := &clock{now: fixedNow}
 	f := &fakeRoutes{cfgs: edgeConfigs()}
-	m := searchModel(t, listenerSnap(t, rdsListener("a-edge", "edge-routes"), tcpListener("z-tcp")), f, c)
+	m := searchModel(t, listenerSnap(t, rdsListener("a-edge", "edge-routes"), tcpListener()), f, c)
 	m = send(m, key(":"))
-	m = send(m, snapshotMsg{snap: listenerSnap(t, tcpListener("z-tcp"))})
+	m = send(m, snapshotMsg{snap: listenerSnap(t, tcpListener())})
 	if !strings.Contains(m.View(), searchGone) {
 		t.Fatalf("no gone notice:\n%s", m.View())
 	}
@@ -718,7 +719,7 @@ func TestSearchListenerGone(t *testing.T) {
 		t.Fatalf("pulled for a gone listener: cmd=%v calls=%d status=%q", cmd != nil, f.calls, m.search.status)
 	}
 	// It comes back: the search works again.
-	m = send(m, snapshotMsg{snap: listenerSnap(t, rdsListener("a-edge", "edge-routes"), tcpListener("z-tcp"))})
+	m = send(m, snapshotMsg{snap: listenerSnap(t, rdsListener("a-edge", "edge-routes"), tcpListener())})
 	_ = query(m, "name logon")
 	if f.calls != 1 {
 		t.Fatalf("calls=%d", f.calls)
@@ -831,7 +832,7 @@ func TestListenersTabHintsAtRouteSearch(t *testing.T) {
 	if row := firstListRow(m); !strings.Contains(row, "/ to filter or : to routes") {
 		t.Fatalf("Listeners first row = %q", row)
 	}
-	for _, k := range []string{"shift+tab", "tab tab"} {
+	for _, k := range []string{"shift+tab", "tab"} {
 		o := m
 		for _, kk := range strings.Fields(k) {
 			o = send(o, key(kk))
@@ -1008,7 +1009,7 @@ func TestSearchAllGuards(t *testing.T) {
 	}
 	// no HTTP routes
 	f := &fakeRoutes{cfgs: edgeConfigs()}
-	m = searchModel(t, listenerSnap(t, tcpListener("z-tcp")), f, c)
+	m = searchModel(t, listenerSnap(t, tcpListener()), f, c)
 	m = query(send(m, key(":")), "all")
 	if f.calls != 0 || m.search.status != snapshot.ErrNoHTTPRoutes.Error() {
 		t.Fatalf("tcp: calls=%d status=%q", f.calls, m.search.status)
@@ -1016,7 +1017,7 @@ func TestSearchAllGuards(t *testing.T) {
 	// listener gone
 	m = searchModel(t, listenerSnap(t, rdsListener("a-edge", "edge-routes")), f, c)
 	m = send(m, key(":"))
-	m = send(m, snapshotMsg{snap: listenerSnap(t, tcpListener("z-tcp"))})
+	m = send(m, snapshotMsg{snap: listenerSnap(t, tcpListener())})
 	m = query(m, "all")
 	if f.calls != 0 || m.search.status != searchGone {
 		t.Fatalf("gone: calls=%d status=%q", f.calls, m.search.status)

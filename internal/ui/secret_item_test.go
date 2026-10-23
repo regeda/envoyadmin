@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-
 	"github.com/regeda/envoyadmin/internal/snapshot"
 )
 
@@ -35,9 +34,9 @@ func TestSecretItemIdentity(t *testing.T) {
 
 func TestSecretRowGlyphsAndLayout(t *testing.T) {
 	cases := []struct {
-		state snapshot.SecretStatus
 		glyph string
-	}{{snapshot.SecretActive, "●"}, {snapshot.SecretStatic, "●"}, {snapshot.SecretWarming, "◐"}}
+		state snapshot.SecretStatus
+	}{{state: snapshot.SecretActive, glyph: "●"}, {state: snapshot.SecretStatic, glyph: "●"}, {state: snapshot.SecretWarming, glyph: "◐"}}
 	for _, c := range cases {
 		row := ansiStrip(secItem0(sec("server-cert", "12", c.state)).Row(rowCtx{Width: 36}))
 		if !strings.HasPrefix(row, " "+c.glyph+" server-cert") || !strings.HasSuffix(row, "12") || lipgloss.Width(row) != 36 {

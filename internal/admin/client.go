@@ -29,10 +29,12 @@ type Client interface {
 
 // ClusterConfig is one cluster's config as Envoy emitted it.
 type ClusterConfig struct {
-	Name, Type, VersionInfo string
-	LastUpdated             time.Time
-	Static                  bool
-	JSON                    []byte
+	LastUpdated time.Time
+	Name        string
+	Type        string
+	VersionInfo string
+	JSON        []byte
+	Static      bool
 }
 
 type HTTP struct {
@@ -67,7 +69,7 @@ func (h *HTTP) get(ctx context.Context, path string, q url.Values) ([]byte, erro
 	if err != nil {
 		return nil, fmt.Errorf("GET %s: %w", path, err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer resp.Body.Close() //nolint:errcheck // read-only body, nothing to recover
 	if resp.StatusCode/100 != 2 {
 		return nil, fmt.Errorf("GET %s: %s", path, resp.Status)
 	}

@@ -10,7 +10,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
-
 	"github.com/regeda/envoyadmin/internal/config"
 	"github.com/regeda/envoyadmin/internal/snapshot"
 )
@@ -28,12 +27,20 @@ func testOpts(fetch Fetcher) Options {
 
 func send(m Model, msg tea.Msg) Model {
 	nm, _ := m.Update(msg)
-	return nm.(Model)
+	out, ok := nm.(Model)
+	if !ok {
+		panic("Update returned a model that is not a Model")
+	}
+	return out
 }
 
 func sendCmd(m Model, msg tea.Msg) (Model, tea.Cmd) {
 	nm, cmd := m.Update(msg)
-	return nm.(Model), cmd
+	out, ok := nm.(Model)
+	if !ok {
+		panic("Update returned a model that is not a Model")
+	}
+	return out, cmd
 }
 
 // run executes a cmd (recursing into batches) and returns the messages produced.

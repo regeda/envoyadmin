@@ -10,25 +10,26 @@ import (
 )
 
 type match struct {
-	idx  int   // index into listPane.all
-	hits []int // matched byte offsets in FilterText (as reported by fuzzy)
+	hits []int
+	idx  int
 }
 
 type listPane struct {
-	all           []resourceItem
-	visible       []match
-	cursor        int
-	selected      string // the selected item's Key
-	query         string
-	filtering     bool
-	unfocused     bool // zero value = focused
-	waiting       bool
-	emptyText     string
-	hint          string // the first row when idle
-	notice        string
-	input         textinput.Model
-	width, height int
-	offset        int
+	hint      string
+	notice    string
+	emptyText string
+	selected  string
+	query     string
+	visible   []match
+	all       []resourceItem
+	input     textinput.Model
+	cursor    int
+	width     int
+	height    int
+	offset    int
+	filtering bool
+	unfocused bool
+	waiting   bool
 }
 
 func newListPane() listPane {
@@ -137,23 +138,13 @@ func (l *listPane) clearFilter() {
 
 func (l *listPane) HandleKey(k tea.KeyMsg) {
 	if l.filtering {
-		switch k.String() {
-		case "enter":
-			l.filtering = false
-			l.input.Blur()
-		case "esc":
-			l.clearFilter()
-		case "up", "ctrl+p":
-			l.move(-1)
-		case "down", "ctrl+n":
-			l.move(1)
-		default:
-			l.input, _ = l.input.Update(k)
-			l.query = l.input.Value()
-			l.refilter()
-		}
+		l.handleFilterKey(k)
 		return
 	}
+	l.handleBrowseKey(k)
+}
+
+func (l *listPane) handleBrowseKey(k tea.KeyMsg) {
 	switch k.String() {
 	case "up", "k":
 		l.move(-1)
@@ -174,6 +165,24 @@ func (l *listPane) HandleKey(k tea.KeyMsg) {
 		if l.query != "" {
 			l.clearFilter()
 		}
+	}
+}
+
+func (l *listPane) handleFilterKey(k tea.KeyMsg) {
+	switch k.String() {
+	case "enter":
+		l.filtering = false
+		l.input.Blur()
+	case "esc":
+		l.clearFilter()
+	case "up", "ctrl+p":
+		l.move(-1)
+	case "down", "ctrl+n":
+		l.move(1)
+	default:
+		l.input, _ = l.input.Update(k)
+		l.query = l.input.Value()
+		l.refilter()
 	}
 }
 

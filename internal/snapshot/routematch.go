@@ -9,16 +9,14 @@ import (
 
 // RouteHit is one route found by a search, with where it lives.
 type RouteHit struct {
-	Config, VirtualHost string
-	Domains             []string
-	Route               Route
-	// Winner marks the route Envoy would pick; Tentative means a route
-	// before it could not be evaluated. NotEvaluated means the route uses a
-	// matcher this tool does not evaluate: neither a match nor a miss.
-	Winner, Tentative, NotEvaluated bool
-	// AnyHost marks a hit of a hostless request: the host is a wildcard, so
-	// no winner is claimed.
-	AnyHost bool
+	Config       string
+	VirtualHost  string
+	Domains      []string
+	Route        Route
+	Winner       bool
+	Tentative    bool
+	NotEvaluated bool
+	AnyHost      bool
 }
 
 // Status names the hit for display.
@@ -88,41 +86,46 @@ func MatchRoutes(cfgs []RouteConfig, req Request) []RouteHit {
 	}
 	var hits []RouteHit
 	for _, c := range cfgs {
-		vh := chooseVirtualHost(c.VirtualHosts, req.Host, req.Port)
-		if vh == nil {
-			continue
+		if vh := chooseVirtualHost(c.VirtualHosts, req.Host, req.Port); vh != nil {
+			hits = append(hits, matchVirtualHost(c.Name, vh, &v)...)
 		}
-		hit := func(r Route) RouteHit {
-			return RouteHit{Config: c.Name, VirtualHost: vh.Name, Domains: vh.Domains, Route: r}
-		}
-		won, unevaluated := false, false
-		var pending []RouteHit // unevaluated routes before the winner
-		var after []RouteHit   // matches after the winner
-		var winner RouteHit
-		for _, r := range vh.Routes {
-			switch r.match.eval(&v) {
-			case matchUnknown:
-				if !won {
-					unevaluated = true
-					h := hit(r)
-					h.NotEvaluated = true
-					pending = append(pending, h)
-				}
-			case matchYes:
-				if !won {
-					won = true
-					winner = hit(r)
-					winner.Winner, winner.Tentative = true, unevaluated
-				} else {
-					after = append(after, hit(r))
-				}
+	}
+	return hits
+}
+
+// matchVirtualHost tests the routes of vh in order: unevaluated routes before
+// the winner, the winner, then the matches after it.
+func matchVirtualHost(config string, vh *VirtualHost, v *requestView) []RouteHit {
+	hit := func(r Route) RouteHit {
+		return RouteHit{Config: config, VirtualHost: vh.Name, Domains: vh.Domains, Route: r}
+	}
+	won, unevaluated := false, false
+	var pending []RouteHit // unevaluated routes before the winner
+	var after []RouteHit   // matches after the winner
+	var winner RouteHit
+	for _, r := range vh.Routes {
+		switch r.match.eval(v) {
+		case matchUnknown:
+			if !won {
+				unevaluated = true
+				h := hit(r)
+				h.NotEvaluated = true
+				pending = append(pending, h)
+			}
+		case matchYes:
+			if !won {
+				won = true
+				winner = hit(r)
+				winner.Winner, winner.Tentative = true, unevaluated
+			} else {
+				after = append(after, hit(r))
 			}
 		}
-		hits = append(hits, pending...)
-		if won {
-			hits = append(hits, winner)
-			hits = append(hits, after...)
-		}
+	}
+	hits := pending
+	if won {
+		hits = append(hits, winner)
+		hits = append(hits, after...)
 	}
 	return hits
 }
@@ -158,13 +161,6 @@ func chooseVirtualHost(vhs []VirtualHost, host, port string) *VirtualHost {
 	if port != "" {
 		withPort = host + ":" + port
 	}
-	const (
-		rankNone = iota
-		rankAny
-		rankPrefix
-		rankSuffix
-		rankExact
-	)
 	best, bestRank, bestLen := -1, rankNone, -1
 	for i := range vhs {
 		for _, d := range vhs[i].Domains {
@@ -173,17 +169,7 @@ func chooseVirtualHost(vhs []VirtualHost, host, port string) *VirtualHost {
 			if domainHasPort(d) {
 				h = withPort
 			}
-			rank, n := rankNone, 0
-			switch {
-			case d == "*":
-				rank = rankAny
-			case d == h:
-				rank, n = rankExact, len(d)
-			case strings.HasPrefix(d, "*") && len(h) > len(d)-1 && strings.HasSuffix(h, d[1:]):
-				rank, n = rankSuffix, len(d)
-			case strings.HasSuffix(d, "*") && len(h) > len(d)-1 && strings.HasPrefix(h, d[:len(d)-1]):
-				rank, n = rankPrefix, len(d)
-			}
+			rank, n := domainRank(d, h)
 			if rank > bestRank || (rank == bestRank && rank != rankNone && n > bestLen) {
 				best, bestRank, bestLen = i, rank, n
 			}
@@ -193,6 +179,31 @@ func chooseVirtualHost(vhs []VirtualHost, host, port string) *VirtualHost {
 		return nil
 	}
 	return &vhs[best]
+}
+
+// Ranks of a domain match, best last.
+const (
+	rankNone = iota
+	rankAny
+	rankPrefix
+	rankSuffix
+	rankExact
+)
+
+// domainRank is how well the lower-cased domain d matches host h, and the
+// domain length that breaks ties between equal ranks.
+func domainRank(d, h string) (rank, n int) {
+	switch {
+	case d == "*":
+		return rankAny, 0
+	case d == h:
+		return rankExact, len(d)
+	case strings.HasPrefix(d, "*") && len(h) > len(d)-1 && strings.HasSuffix(h, d[1:]):
+		return rankSuffix, len(d)
+	case strings.HasSuffix(d, "*") && len(h) > len(d)-1 && strings.HasPrefix(h, d[:len(d)-1]):
+		return rankPrefix, len(d)
+	}
+	return rankNone, 0
 }
 
 // domainHasPort reports whether a configured domain ends in ":<digits>".
@@ -240,12 +251,12 @@ const (
 // strMatcher is a decoded StringMatcher. re is compiled lazily by
 // routeMatch.compile.
 type strMatcher struct {
-	kind       strKind
-	value      string
-	lower      string // value lower-cased, when ignoreCase
-	ignoreCase bool
 	re         *regexp.Regexp
-	bad        bool // the regex failed to compile
+	value      string
+	lower      string
+	kind       strKind
+	ignoreCase bool
+	bad        bool
 }
 
 type headerKind int
@@ -257,32 +268,33 @@ const (
 )
 
 type headerMatcher struct {
-	name                   string
-	kind                   headerKind
-	str                    strMatcher
-	present                bool
-	start, end             int64
-	invert, missingAsEmpty bool
+	name           string
+	str            strMatcher
+	kind           headerKind
+	start          int64
+	end            int64
+	present        bool
+	invert         bool
+	missingAsEmpty bool
 }
 
 type queryMatcher struct {
+	str  *strMatcher
 	name string
-	str  *strMatcher // nil: present match
 }
 
 // routeMatch is a route's match decoded once by ParseRouteConfig.
 // unsupported means a part of the match could not be decoded: the route is
 // never a match, but the decoded parts can still make it a miss.
 type routeMatch struct {
-	unsupported   bool
-	path          pathKind
-	pathValue     string
 	pathRe        *strMatcher
-	caseSensitive bool
+	pathValue     string
 	headers       []headerMatcher
 	query         []queryMatcher
-
-	once sync.Once
+	path          pathKind
+	once          sync.Once
+	unsupported   bool
+	caseSensitive bool
 }
 
 // compile compiles every regex of the route once; a failure makes that
@@ -299,32 +311,35 @@ func (m *routeMatch) compile() {
 			ms = append(ms, q.str)
 		}
 		for _, s := range ms {
-			if s == nil || s.kind != strRegex {
-				continue
+			if s != nil && s.kind == strRegex {
+				s.compileRegex()
 			}
-			// Validate the pattern alone first: an unbalanced pattern such
-			// as "x)|(.*" would close the wrapping group and compile.
-			if _, err := regexp.Compile(s.value); err != nil {
-				s.bad = true
-				continue
-			}
-			re, err := regexp.Compile(`^(?:` + s.value + `)$`)
-			if err != nil {
-				s.bad = true
-				continue
-			}
-			s.re = re
 		}
 	})
 }
 
+// compileRegex compiles the whole-string regex, marking the matcher bad on
+// a failure.
+func (s *strMatcher) compileRegex() {
+	// Validate the pattern alone first: an unbalanced pattern such
+	// as "x)|(.*" would close the wrapping group and compile.
+	if _, err := regexp.Compile(s.value); err != nil {
+		s.bad = true
+		return
+	}
+	re, err := regexp.Compile(`^(?:` + s.value + `)$`)
+	if err != nil {
+		s.bad = true
+		return
+	}
+	s.re = re
+}
+
 // requestView is a Request with the pseudo-headers precomputed.
 type requestView struct {
-	req       Request
 	authority string
-	// hasQuery: the request has a query, whose original text is unknown
-	// (url.Values loses order and encoding), so :path cannot be matched.
-	hasQuery bool
+	req       Request
+	hasQuery  bool
 }
 
 func newRequestView(req Request) requestView {
@@ -369,14 +384,34 @@ func (m *routeMatch) eval(v *requestView) matchResult {
 	}
 	m.compile()
 	unknown := m.unsupported
-	switch {
-	case m.path == pathNone:
+	if m.path == pathNone || (m.path == pathRegex && m.pathRe.bad) {
 		unknown = true
-	case m.path == pathRegex && m.pathRe.bad:
-		unknown = true
-	case !m.matchPath(v.req.Path):
+	} else if !m.matchPath(v.req.Path) {
 		return matchNo
 	}
+	rest, miss := m.evalHeadersAndQuery(v)
+	if miss {
+		return matchNo
+	}
+	if unknown || rest {
+		return matchUnknown
+	}
+	return matchYes
+}
+
+// evalHeadersAndQuery combines evalHeaders and evalQuery.
+func (m *routeMatch) evalHeadersAndQuery(v *requestView) (unknown, miss bool) {
+	hu, miss := m.evalHeaders(v)
+	if miss {
+		return false, true
+	}
+	qu, miss := m.evalQuery(v)
+	return hu || qu, miss
+}
+
+// evalHeaders reports whether a header matcher could not be evaluated, and
+// whether one definitely missed.
+func (m *routeMatch) evalHeaders(v *requestView) (unknown, miss bool) {
 	for i := range m.headers {
 		h := &m.headers[i]
 		if (h.name == ":path" && v.hasQuery) || (h.kind == headerString && h.str.bad) {
@@ -387,9 +422,14 @@ func (m *routeMatch) eval(v *requestView) matchResult {
 			continue // a wildcard host fits any :authority, inverted or not
 		}
 		if !h.match(v) {
-			return matchNo
+			return unknown, true
 		}
 	}
+	return unknown, false
+}
+
+// evalQuery is evalHeaders for the query parameter matchers.
+func (m *routeMatch) evalQuery(v *requestView) (unknown, miss bool) {
 	for i := range m.query {
 		q := &m.query[i]
 		if q.str != nil && q.str.bad {
@@ -397,13 +437,10 @@ func (m *routeMatch) eval(v *requestView) matchResult {
 			continue
 		}
 		if !q.match(v) {
-			return matchNo
+			return unknown, true
 		}
 	}
-	if unknown {
-		return matchUnknown
-	}
-	return matchYes
+	return unknown, false
 }
 
 // matchPath matches the path without its query string.

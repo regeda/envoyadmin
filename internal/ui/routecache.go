@@ -14,10 +14,10 @@ const routePullWindow = 10 * time.Second
 // routeEntry is one pull: the configs found, and the RDS names the proxy did
 // not return, reported again whenever the entry is served.
 type routeEntry struct {
+	at      time.Time
 	names   []string
 	cfgs    []snapshot.RouteConfig
 	missing []string
-	at      time.Time
 }
 
 // missingErr is the warning for the entry's missing configs, or nil.

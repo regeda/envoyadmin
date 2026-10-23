@@ -10,7 +10,6 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/exp/teatest"
-
 	"github.com/regeda/envoyadmin/internal/admin"
 	"github.com/regeda/envoyadmin/internal/config"
 	"github.com/regeda/envoyadmin/internal/demo"
@@ -169,7 +168,10 @@ func TestEndToEndListenersTabAndIsolatedFailure(t *testing.T) {
 	waitFor(t, tm, "virtualInbound")
 
 	tm.Send(key("q"))
-	final := tm.FinalModel(t, teatest.WithFinalTimeout(2*time.Second)).(Model)
+	final, ok := tm.FinalModel(t, teatest.WithFinalTimeout(2*time.Second)).(Model)
+	if !ok {
+		t.Fatal("final model is not a Model")
+	}
 	if final.bannerVisible() || final.err != nil {
 		t.Fatalf("a listener failure must never raise the banner (err=%v)", final.err)
 	}
@@ -211,7 +213,10 @@ func TestEndToEndSecretsTabAndIsolatedFailure(t *testing.T) {
 	waitFor(t, tm, "server-cert", "bootstrap-cert")
 
 	tm.Send(key("q"))
-	final := tm.FinalModel(t, teatest.WithFinalTimeout(2*time.Second)).(Model)
+	final, ok := tm.FinalModel(t, teatest.WithFinalTimeout(2*time.Second)).(Model)
+	if !ok {
+		t.Fatal("final model is not a Model")
+	}
 	if final.bannerVisible() || final.err != nil {
 		t.Fatalf("a secrets failure must never raise the banner (err=%v)", final.err)
 	}

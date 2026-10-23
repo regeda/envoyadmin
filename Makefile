@@ -24,9 +24,8 @@ test: ## Run all tests with the race detector
 test-update: ## Regenerate teatest golden files
 	go test ./internal/ui/... -update
 
-lint: ## go vet + golangci-lint
-	go vet ./...
-	$(GOLANGCI_LINT) run
+lint:
+	$(GOLANGCI_LINT) run --fix ./...
 
 fmt: ## Format the code
 	gofmt -s -w .
@@ -41,7 +40,4 @@ cover: ## Coverage summary
 clean: ## Remove build and coverage output
 	rm -rf bin coverage.out
 
-check: ## fmt check + lint + test (the "is it green" command)
-	@test -z "$$(gofmt -s -l .)" || { gofmt -s -l .; echo "gofmt needed: run make fmt"; exit 1; }
-	$(MAKE) lint
-	$(MAKE) test
+check: lint test

@@ -35,12 +35,7 @@ func FetchRoutes(ctx context.Context, c admin.Client, l Listener) ([]RouteConfig
 		return nil, ErrNoHTTPRoutes
 	}
 	refs := l.RouteRefs()
-	var names []string
-	for _, r := range refs {
-		if r.Name != "" {
-			names = append(names, r.Name)
-		}
-	}
+	names := rdsNames(refs)
 	var fetched map[string]admin.RouteConfig
 	if len(names) > 0 {
 		got, err := c.RouteConfigs(ctx, names)
@@ -56,11 +51,7 @@ func FetchRoutes(ctx context.Context, c admin.Client, l Listener) ([]RouteConfig
 	var missing []string
 	for _, r := range refs {
 		if r.Name == "" {
-			var head struct {
-				Name string `json:"name"`
-			}
-			_ = json.Unmarshal(r.Inline, &head)
-			out = append(out, ParseRouteConfig(head.Name, "", true, r.Inline))
+			out = append(out, ParseRouteConfig(inlineName(r.Inline), "", true, r.Inline))
 			continue
 		}
 		g, ok := fetched[r.Name]
@@ -74,4 +65,24 @@ func FetchRoutes(ctx context.Context, c admin.Client, l Listener) ([]RouteConfig
 		return out, &MissingRouteConfigError{Names: missing}
 	}
 	return out, nil
+}
+
+// rdsNames are the names of the refs that are fetched, not inline.
+func rdsNames(refs []RouteRef) []string {
+	var names []string
+	for _, r := range refs {
+		if r.Name != "" {
+			names = append(names, r.Name)
+		}
+	}
+	return names
+}
+
+// inlineName is the "name" of an inline route config, "" when absent.
+func inlineName(inline json.RawMessage) string {
+	var head struct {
+		Name string `json:"name"`
+	}
+	looseUnmarshal(inline, &head)
+	return head.Name
 }

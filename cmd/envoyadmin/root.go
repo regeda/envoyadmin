@@ -3,9 +3,8 @@ package main
 import (
 	"fmt"
 
-	"github.com/spf13/cobra"
-
 	"github.com/regeda/envoyadmin/internal/config"
+	"github.com/spf13/cobra"
 )
 
 func newRootCmd(version string) *cobra.Command {
@@ -29,7 +28,10 @@ func newRootCmd(version string) *cobra.Command {
 		Use:   "version",
 		Short: "Print the version",
 		Args:  cobra.NoArgs,
-		Run:   func(cmd *cobra.Command, _ []string) { _, _ = fmt.Fprintln(cmd.OutOrStdout(), version) },
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			_, err := fmt.Fprintln(cmd.OutOrStdout(), version)
+			return err
+		},
 	})
 	return cmd
 }

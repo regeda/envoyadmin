@@ -35,24 +35,24 @@ func TestListenerStatePrecedence(t *testing.T) {
 	l := `{"name":"x","address":{"socket_address":{"address":"1.2.3.4","port_value":80}}}`
 	tests := []struct {
 		name       string
-		lc         admin.ListenerConfig
-		wantState  ListenerStatus
 		wantText   string
 		wantVer    string
+		lc         admin.ListenerConfig
+		wantState  ListenerStatus
 		servingOld bool
 	}{
-		{"active", admin.ListenerConfig{Name: "x", Active: st("7", l)}, ListenerActive, "active", "7", false},
-		{"static", admin.ListenerConfig{Name: "x", Static: true, Active: st("", l)}, ListenerActive, "static", "", false},
-		{"warming with old", admin.ListenerConfig{Name: "x", Active: st("6", l), Warming: st("7", l)}, ListenerWarming, "warming", "6", false},
-		{"warming only", admin.ListenerConfig{Name: "x", Warming: st("7", l)}, ListenerWarming, "warming", "7", false},
-		{"active with a draining old version is active", admin.ListenerConfig{Name: "x", Active: st("9", l), Draining: st("8", l)}, ListenerActive, "active", "9", false},
-		{"draining only", admin.ListenerConfig{Name: "x", Draining: st("5", l)}, ListenerDraining, "draining", "5", false},
-		{"warming beats active+draining", admin.ListenerConfig{Name: "x", Active: st("6", l), Warming: st("7", l), Draining: st("5", l)}, ListenerWarming, "warming", "6", false},
-		{"draining beats warming without active", admin.ListenerConfig{Name: "x", Warming: st("8", l), Draining: st("5", l)}, ListenerDraining, "draining", "8", false},
-		{"error beats all", admin.ListenerConfig{Name: "x", Active: st("3", l), Draining: st("2", l),
-			Error: &admin.ListenerError{Details: "boom", Listener: raw(l)}}, ListenerError, "error", "3", true},
-		{"error never worked", admin.ListenerConfig{Name: "x", Error: &admin.ListenerError{Details: "nope",
-			LastUpdateAttempt: time.Date(2026, 10, 14, 11, 0, 0, 0, time.UTC), Listener: raw(l)}}, ListenerError, "error", "", false},
+		{name: "active", lc: admin.ListenerConfig{Name: "x", Active: st("7", l)}, wantState: ListenerActive, wantText: "active", wantVer: "7", servingOld: false},
+		{name: "static", lc: admin.ListenerConfig{Name: "x", Static: true, Active: st("", l)}, wantState: ListenerActive, wantText: "static", wantVer: "", servingOld: false},
+		{name: "warming with old", lc: admin.ListenerConfig{Name: "x", Active: st("6", l), Warming: st("7", l)}, wantState: ListenerWarming, wantText: "warming", wantVer: "6", servingOld: false},
+		{name: "warming only", lc: admin.ListenerConfig{Name: "x", Warming: st("7", l)}, wantState: ListenerWarming, wantText: "warming", wantVer: "7", servingOld: false},
+		{name: "active with a draining old version is active", lc: admin.ListenerConfig{Name: "x", Active: st("9", l), Draining: st("8", l)}, wantState: ListenerActive, wantText: "active", wantVer: "9", servingOld: false},
+		{name: "draining only", lc: admin.ListenerConfig{Name: "x", Draining: st("5", l)}, wantState: ListenerDraining, wantText: "draining", wantVer: "5", servingOld: false},
+		{name: "warming beats active+draining", lc: admin.ListenerConfig{Name: "x", Active: st("6", l), Warming: st("7", l), Draining: st("5", l)}, wantState: ListenerWarming, wantText: "warming", wantVer: "6", servingOld: false},
+		{name: "draining beats warming without active", lc: admin.ListenerConfig{Name: "x", Warming: st("8", l), Draining: st("5", l)}, wantState: ListenerDraining, wantText: "draining", wantVer: "8", servingOld: false},
+		{name: "error beats all", lc: admin.ListenerConfig{Name: "x", Active: st("3", l), Draining: st("2", l),
+			Error: &admin.ListenerError{Details: "boom", Listener: raw(l)}}, wantState: ListenerError, wantText: "error", wantVer: "3", servingOld: true},
+		{name: "error never worked", lc: admin.ListenerConfig{Name: "x", Error: &admin.ListenerError{Details: "nope",
+			LastUpdateAttempt: time.Date(2026, 10, 14, 11, 0, 0, 0, time.UTC), Listener: raw(l)}}, wantState: ListenerError, wantText: "error", wantVer: "", servingOld: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -218,7 +218,10 @@ func TestFetchListenersFromDemo(t *testing.T) {
 func TestListenerDumpFailureIsIsolated(t *testing.T) {
 	srv := httptest.NewServer(demo.NewServer(demo.Degraded()))
 	defer srv.Close()
-	c, _ := admin.NewHTTP(srv.URL, time.Second)
+	c, err := admin.NewHTTP(srv.URL, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	s, err := Fetch(context.Background(), stub{Client: c, listenersErr: errors.New("boom")})
 	if err != nil {
@@ -233,7 +236,10 @@ func TestListenerDumpFailureIsIsolated(t *testing.T) {
 	h := httptest.NewServer(d)
 	defer h.Close()
 	d.Inject(demo.Fault{Status: http.StatusServiceUnavailable, Match: "dynamic_listeners"})
-	c2, _ := admin.NewHTTP(h.URL, time.Second)
+	c2, err := admin.NewHTTP(h.URL, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
 	s, err = Fetch(context.Background(), c2)
 	if err != nil || !strings.HasPrefix(s.ListenersErr, "listeners unavailable: ") || !strings.Contains(s.ListenersErr, "503") || len(s.Clusters) == 0 {
 		t.Fatalf("err=%v listenersErr=%q clusters=%d", err, s.ListenersErr, len(s.Clusters))
@@ -259,21 +265,24 @@ func TestRealRejectedUpdateThroughFetch(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/clusters":
-			_, _ = w.Write(clusters)
+			writeBody(t, w, clusters)
 		case r.URL.Path == "/server_info":
-			_, _ = w.Write(info)
+			writeBody(t, w, info)
 		case r.URL.Query().Get("resource") == "dynamic_listeners":
-			_, _ = w.Write(dyn)
+			writeBody(t, w, dyn)
 		case r.URL.Query().Get("resource") == "static_listeners":
-			_, _ = w.Write([]byte(`{}`))
+			writeBody(t, w, []byte(`{}`))
 		case r.URL.Query().Get("resource") == "dynamic_active_clusters":
-			_, _ = w.Write(cdyn)
+			writeBody(t, w, cdyn)
 		default:
-			_, _ = w.Write(cstat)
+			writeBody(t, w, cstat)
 		}
 	}))
 	defer srv.Close()
-	c, _ := admin.NewHTTP(srv.URL, time.Second)
+	c, err := admin.NewHTTP(srv.URL, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
 	s, err := Fetch(context.Background(), c)
 	if err != nil || len(s.Listeners) != 1 {
 		t.Fatalf("%v listeners=%d: Envoy's two elements are one listener", err, len(s.Listeners))
@@ -301,21 +310,24 @@ func TestRealListenerCapturesThroughFetch(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/clusters":
-			_, _ = w.Write(clusters)
+			writeBody(t, w, clusters)
 		case r.URL.Path == "/server_info":
-			_, _ = w.Write(info)
+			writeBody(t, w, info)
 		case r.URL.Query().Get("resource") == "dynamic_listeners":
-			_, _ = w.Write(dyn)
+			writeBody(t, w, dyn)
 		case r.URL.Query().Get("resource") == "static_listeners":
-			_, _ = w.Write(stat)
+			writeBody(t, w, stat)
 		case r.URL.Query().Get("resource") == "dynamic_active_clusters":
-			_, _ = w.Write(cdyn)
+			writeBody(t, w, cdyn)
 		default:
-			_, _ = w.Write(cstat)
+			writeBody(t, w, cstat)
 		}
 	}))
 	defer srv.Close()
-	c, _ := admin.NewHTTP(srv.URL, time.Second)
+	c, err := admin.NewHTTP(srv.URL, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
 	s, err := Fetch(context.Background(), c)
 	if err != nil || s.ListenersErr != "" {
 		t.Fatalf("%v %q", err, s.ListenersErr)
@@ -506,21 +518,24 @@ func TestRealHCMCaptureThroughFetch(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/clusters":
-			_, _ = w.Write(clusters)
+			writeBody(t, w, clusters)
 		case r.URL.Path == "/server_info":
-			_, _ = w.Write(info)
+			writeBody(t, w, info)
 		case r.URL.Query().Get("resource") == "dynamic_listeners":
-			_, _ = w.Write([]byte(`{"configs":[]}`))
+			writeBody(t, w, []byte(`{"configs":[]}`))
 		case r.URL.Query().Get("resource") == "static_listeners":
-			_, _ = w.Write(hcm)
+			writeBody(t, w, hcm)
 		case r.URL.Query().Get("resource") == "dynamic_active_clusters":
-			_, _ = w.Write(cdyn)
+			writeBody(t, w, cdyn)
 		default:
-			_, _ = w.Write(cstat)
+			writeBody(t, w, cstat)
 		}
 	}))
 	defer srv.Close()
-	c, _ := admin.NewHTTP(srv.URL, time.Second)
+	c, err := admin.NewHTTP(srv.URL, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
 	s, err := Fetch(context.Background(), c)
 	if err != nil || s.ListenersErr != "" {
 		t.Fatalf("%v %q", err, s.ListenersErr)
@@ -612,5 +627,12 @@ func TestParseChainRouteRefs(t *testing.T) {
 	}
 	if sl := (Listener{Chains: []FilterChain{tcp, scoped}}); !sl.HasScopedRoutes() || !sl.HasHTTP() || len(sl.RouteRefs()) != 0 {
 		t.Fatalf("scoped listener: scoped=%v http=%v refs=%+v", sl.HasScopedRoutes(), sl.HasHTTP(), sl.RouteRefs())
+	}
+}
+
+func writeBody(t *testing.T, w http.ResponseWriter, b []byte) {
+	t.Helper()
+	if _, err := w.Write(b); err != nil {
+		t.Errorf("write response: %v", err)
 	}
 }

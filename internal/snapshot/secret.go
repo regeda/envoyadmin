@@ -29,10 +29,10 @@ func (s SecretStatus) String() string {
 
 // CertInfo is a certificate's facts. There is no field for its body.
 type CertInfo struct {
+	NotAfter time.Time
 	Serial   string
 	SANs     []string
-	NotAfter time.Time
-	DaysLeft int64 // whole days until NotAfter at fetch time; not positive once expired
+	DaysLeft int64
 }
 
 // Expired reports whether the certificate is past its expiry at now.
@@ -45,11 +45,13 @@ type Ref struct{ Kind, Name string }
 
 // Secret is one secret as Envoy has it loaded. It never carries the secret body.
 type Secret struct {
-	Name, Kind, VersionInfo string
-	State                   SecretStatus
-	LastUpdated             time.Time
-	Cert                    *CertInfo
-	UsedBy                  []Ref
+	LastUpdated time.Time
+	Cert        *CertInfo
+	Name        string
+	Kind        string
+	VersionInfo string
+	UsedBy      []Ref
+	State       SecretStatus
 }
 
 // SecretUse is a secret a cluster or listener references. Loaded is false when
@@ -142,43 +144,52 @@ func secretRefs(raw []byte) []string {
 		return nil
 	}
 	seen := map[string]bool{}
-	var walk func(v any)
-	nameOf := func(v any) {
-		if m, ok := v.(map[string]any); ok {
-			if n, ok := m["name"].(string); ok && n != "" {
-				seen[n] = true
-			}
-		}
-	}
-	walk = func(v any) {
-		switch x := v.(type) {
-		case map[string]any:
-			for k, child := range x {
-				switch {
-				case strings.HasSuffix(k, "sds_secret_configs"):
-					if list, ok := child.([]any); ok {
-						for _, e := range list {
-							nameOf(e)
-						}
-					}
-				case strings.HasSuffix(k, "sds_secret_config"):
-					nameOf(child)
-				}
-				walk(child)
-			}
-		case []any:
-			for _, e := range x {
-				walk(e)
-			}
-		}
-	}
-	walk(doc)
+	collectSecretNames(doc, seen)
 	out := make([]string, 0, len(seen))
 	for n := range seen {
 		out = append(out, n)
 	}
 	sort.Strings(out)
 	return out
+}
+
+// collectSecretNames walks a decoded JSON value, adding to seen the names
+// found under sds_secret_config(s) keys.
+func collectSecretNames(v any, seen map[string]bool) {
+	switch x := v.(type) {
+	case map[string]any:
+		for k, child := range x {
+			addSecretNames(k, child, seen)
+			collectSecretNames(child, seen)
+		}
+	case []any:
+		for _, e := range x {
+			collectSecretNames(e, seen)
+		}
+	}
+}
+
+// addSecretNames adds the names of the child of key k when k is an
+// sds_secret_config(s) key.
+func addSecretNames(k string, child any, seen map[string]bool) {
+	switch {
+	case strings.HasSuffix(k, "sds_secret_configs"):
+		if list, ok := child.([]any); ok {
+			for _, e := range list {
+				addSecretName(e, seen)
+			}
+		}
+	case strings.HasSuffix(k, "sds_secret_config"):
+		addSecretName(child, seen)
+	}
+}
+
+func addSecretName(v any, seen map[string]bool) {
+	if m, ok := v.(map[string]any); ok {
+		if n, ok := m["name"].(string); ok && n != "" {
+			seen[n] = true
+		}
+	}
 }
 
 // linkSecrets fills Secret.UsedBy and the Secrets of every cluster and

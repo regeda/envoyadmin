@@ -11,9 +11,9 @@ import (
 // CertFacts are the facts of a secret's public certificate. There is no field
 // for the certificate body, and the private key is never read.
 type CertFacts struct {
+	NotAfter time.Time
 	Serial   string
 	SANs     []string
-	NotAfter time.Time
 }
 
 type dataSource struct {
@@ -43,13 +43,17 @@ func certFacts(secret map[string]json.RawMessage) *CertFacts {
 		var tc struct {
 			Chain dataSource `json:"certificate_chain"`
 		}
-		_ = json.Unmarshal(secret["tls_certificate"], &tc)
+		if json.Unmarshal(secret["tls_certificate"], &tc) != nil {
+			return nil
+		}
 		src = tc.Chain
 	case secret["validation_context"] != nil:
 		var vc struct {
 			CA dataSource `json:"trusted_ca"`
 		}
-		_ = json.Unmarshal(secret["validation_context"], &vc)
+		if json.Unmarshal(secret["validation_context"], &vc) != nil {
+			return nil
+		}
 		src = vc.CA
 	}
 	block, _ := pem.Decode(src.pem())
