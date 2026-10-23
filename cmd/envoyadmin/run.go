@@ -40,6 +40,9 @@ func run(ctx context.Context, cfg config.Config) error {
 		Ctx:    ctx,
 		Config: cfg,
 		Fetch:  func(ctx context.Context) (snapshot.Snapshot, error) { return snapshot.Fetch(ctx, client) },
+		Routes: func(ctx context.Context, l snapshot.Listener) ([]snapshot.RouteConfig, error) {
+			return snapshot.FetchRoutes(ctx, client, l)
+		},
 		// Color gates only the chroma YAML highlighting; lipgloss/termenv honours NO_COLOR itself.
 		Color: os.Getenv("NO_COLOR") == "",
 	})

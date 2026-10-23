@@ -1,0 +1,783 @@
+{
+  "configs": [
+    {
+      "@type": "type.googleapis.com/envoy.admin.v3.RoutesConfigDump.DynamicRouteConfig",
+      "version_info": "0123456789abcdef",
+      "route_config": {
+        "@type": "type.googleapis.com/envoy.config.route.v3.RouteConfiguration",
+        "name": "port-8444-example-gateway",
+        "virtual_hosts": [
+          {
+            "name": "web-8444",
+            "domains": [
+              "*"
+            ],
+            "routes": [
+              {
+                "match": {
+                  "path": "/demo",
+                  "case_sensitive": true,
+                  "headers": [
+                    {
+                      "name": ":authority",
+                      "string_match": {
+                        "safe_regex": {
+                          "regex": "api\\.example\\.com(:[0-9]+)?"
+                        }
+                      }
+                    },
+                    {
+                      "name": ":method",
+                      "string_match": {
+                        "safe_regex": {
+                          "regex": "POST|GET|OPTIONS"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "route": {
+                  "cluster": "external.demo-api.443",
+                  "prefix_rewrite": "/mcp",
+                  "auto_host_rewrite": true
+                },
+                "metadata": {
+                  "filter_metadata": {
+                    "demo_context": {
+                      "analytics": {
+                        "method_name_max_segments": 1
+                      },
+                      "api_product": {
+                        "id": "DemoApi",
+                        "relations": {
+                          "parent": "MCPServer"
+                        },
+                        "access": "ACCESS_INTERNAL",
+                        "display_name": "Demo API"
+                      },
+                      "proxy": {
+                        "id": "DemoApi"
+                      },
+                      "policies": {
+                        "authnz": {
+                          "anonymous": true
+                        },
+                        "ratelimit": {
+                          "quota": {
+                            "unit": "SECOND",
+                            "requests_per_unit": 50
+                          }
+                        }
+                      },
+                      "route": {
+                        "id": "mcp-endpoint"
+                      }
+                    }
+                  }
+                },
+                "typed_per_filter_config": {
+                  "envoy.filters.http.cors": {
+                    "@type": "type.googleapis.com/envoy.extensions.filters.http.cors.v3.CorsPolicy",
+                    "allow_origin_string_match": [
+                      {
+                        "safe_regex": {
+                          "regex": ".+"
+                        }
+                      }
+                    ],
+                    "allow_methods": "POST,GET",
+                    "allow_headers": "accept,authorization,content-type,last-event-id,mcp-protocol-version,mcp-session-id,x-api-key,x-backend,x-user-agent,tracking-id",
+                    "expose_headers": "mcp-session-id,tracking-id,www-authenticate",
+                    "max_age": "60",
+                    "allow_credentials": true,
+                    "filter_enabled": {
+                      "default_value": {
+                        "numerator": 100
+                      }
+                    },
+                    "forward_not_matching_preflights": true
+                  }
+                },
+                "name": "DemoApi.mcp-endpoint.demo-default.0"
+              },
+              {
+                "match": {
+                  "path": "/demo",
+                  "case_sensitive": true,
+                  "headers": [
+                    {
+                      "name": ":authority",
+                      "string_match": {
+                        "safe_regex": {
+                          "regex": "eu\\.example\\.com(:[0-9]+)?"
+                        }
+                      }
+                    },
+                    {
+                      "name": ":method",
+                      "string_match": {
+                        "safe_regex": {
+                          "regex": "POST|GET|OPTIONS"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "route": {
+                  "cluster": "external.demo-api.443",
+                  "prefix_rewrite": "/mcp",
+                  "auto_host_rewrite": true
+                },
+                "metadata": {
+                  "filter_metadata": {
+                    "demo_context": {
+                      "analytics": {
+                        "method_name_max_segments": 1
+                      },
+                      "api_product": {
+                        "id": "DemoApi",
+                        "relations": {
+                          "parent": "MCPServer"
+                        },
+                        "access": "ACCESS_INTERNAL",
+                        "display_name": "Demo API"
+                      },
+                      "proxy": {
+                        "id": "DemoApi"
+                      },
+                      "policies": {
+                        "authnz": {
+                          "anonymous": true
+                        },
+                        "ratelimit": {
+                          "quota": {
+                            "unit": "SECOND",
+                            "requests_per_unit": 50
+                          }
+                        }
+                      },
+                      "route": {
+                        "id": "mcp-endpoint"
+                      }
+                    }
+                  }
+                },
+                "typed_per_filter_config": {
+                  "envoy.filters.http.cors": {
+                    "@type": "type.googleapis.com/envoy.extensions.filters.http.cors.v3.CorsPolicy",
+                    "allow_origin_string_match": [
+                      {
+                        "safe_regex": {
+                          "regex": ".+"
+                        }
+                      }
+                    ],
+                    "allow_methods": "POST,GET",
+                    "allow_headers": "accept,authorization,content-type,last-event-id,mcp-protocol-version,mcp-session-id,x-api-key,x-backend,x-user-agent,tracking-id",
+                    "expose_headers": "mcp-session-id,tracking-id,www-authenticate",
+                    "max_age": "60",
+                    "allow_credentials": true,
+                    "filter_enabled": {
+                      "default_value": {
+                        "numerator": 100
+                      }
+                    },
+                    "forward_not_matching_preflights": true
+                  }
+                },
+                "name": "DemoApi.mcp-endpoint.demo-eu.0"
+              },
+              {
+                "match": {
+                  "path": "/demo/health",
+                  "case_sensitive": true,
+                  "headers": [
+                    {
+                      "name": ":method",
+                      "string_match": {
+                        "safe_regex": {
+                          "regex": "GET|OPTIONS"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "route": {
+                  "cluster": "external.demo-api.443",
+                  "prefix_rewrite": "/health",
+                  "auto_host_rewrite": true
+                },
+                "metadata": {
+                  "filter_metadata": {
+                    "demo_context": {
+                      "api_product": {
+                        "display_name": "Demo API",
+                        "relations": {
+                          "parent": "MCPServer"
+                        },
+                        "access": "ACCESS_INTERNAL",
+                        "id": "DemoApi"
+                      },
+                      "analytics": {
+                        "method_name_max_segments": 1
+                      },
+                      "proxy": {
+                        "id": "DemoApi"
+                      },
+                      "policies": {
+                        "ratelimit": {
+                          "quota": {
+                            "unit": "SECOND",
+                            "requests_per_unit": 50
+                          }
+                        },
+                        "authnz": {
+                          "anonymous": true
+                        }
+                      },
+                      "route": {
+                        "id": "mcp-endpoint-healthcheck"
+                      }
+                    }
+                  }
+                },
+                "typed_per_filter_config": {
+                  "envoy.filters.http.cors": {
+                    "@type": "type.googleapis.com/envoy.extensions.filters.http.cors.v3.CorsPolicy",
+                    "allow_origin_string_match": [
+                      {
+                        "safe_regex": {
+                          "regex": ".+"
+                        }
+                      }
+                    ],
+                    "allow_methods": "POST,GET",
+                    "allow_headers": "accept,authorization,content-type,last-event-id,mcp-protocol-version,mcp-session-id,x-api-key,x-backend,x-user-agent,tracking-id",
+                    "expose_headers": "mcp-session-id,tracking-id,www-authenticate",
+                    "max_age": "60",
+                    "allow_credentials": true,
+                    "filter_enabled": {
+                      "default_value": {
+                        "numerator": 100
+                      }
+                    },
+                    "forward_not_matching_preflights": true
+                  }
+                },
+                "name": "DemoApi.mcp-endpoint-healthcheck.demo-healthcheck.0"
+              },
+              {
+                "match": {
+                  "path": "/.well-known/oauth-protected-resource/demo",
+                  "case_sensitive": true,
+                  "headers": [
+                    {
+                      "name": ":method",
+                      "string_match": {
+                        "safe_regex": {
+                          "regex": "GET|OPTIONS"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "route": {
+                  "cluster": "external.demo-api.443",
+                  "auto_host_rewrite": true
+                },
+                "metadata": {
+                  "filter_metadata": {
+                    "demo_context": {
+                      "route": {
+                        "id": "mcp-well-known"
+                      },
+                      "policies": {
+                        "authnz": {
+                          "anonymous": true
+                        },
+                        "ratelimit": {
+                          "quota": {
+                            "unit": "SECOND",
+                            "requests_per_unit": 50
+                          }
+                        }
+                      },
+                      "proxy": {
+                        "id": "DemoApi"
+                      },
+                      "analytics": {
+                        "method_name_max_segments": 1
+                      },
+                      "api_product": {
+                        "access": "ACCESS_INTERNAL",
+                        "relations": {
+                          "parent": "MCPServer"
+                        },
+                        "id": "DemoApi",
+                        "display_name": "Demo API"
+                      }
+                    }
+                  }
+                },
+                "typed_per_filter_config": {
+                  "envoy.filters.http.cors": {
+                    "@type": "type.googleapis.com/envoy.extensions.filters.http.cors.v3.CorsPolicy",
+                    "allow_origin_string_match": [
+                      {
+                        "safe_regex": {
+                          "regex": ".+"
+                        }
+                      }
+                    ],
+                    "allow_methods": "POST,GET",
+                    "allow_headers": "accept,authorization,content-type,last-event-id,mcp-protocol-version,mcp-session-id,x-api-key,x-backend,x-user-agent,tracking-id",
+                    "expose_headers": "mcp-session-id,tracking-id,www-authenticate",
+                    "max_age": "60",
+                    "allow_credentials": true,
+                    "filter_enabled": {
+                      "default_value": {
+                        "numerator": 100
+                      }
+                    },
+                    "forward_not_matching_preflights": true
+                  }
+                },
+                "name": "DemoApi.mcp-well-known.demo-default.0"
+              },
+              {
+                "match": {
+                  "path": "/.well-known/oauth-client-metadata/demo",
+                  "case_sensitive": true,
+                  "headers": [
+                    {
+                      "name": ":method",
+                      "string_match": {
+                        "safe_regex": {
+                          "regex": "GET|OPTIONS"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "route": {
+                  "cluster": "external.demo-api.443",
+                  "auto_host_rewrite": true
+                },
+                "metadata": {
+                  "filter_metadata": {
+                    "demo_context": {
+                      "policies": {
+                        "ratelimit": {
+                          "quota": {
+                            "unit": "SECOND",
+                            "requests_per_unit": 50
+                          }
+                        },
+                        "authnz": {
+                          "anonymous": true
+                        }
+                      },
+                      "route": {
+                        "id": "mcp-well-known"
+                      },
+                      "proxy": {
+                        "id": "DemoApi"
+                      },
+                      "api_product": {
+                        "display_name": "Demo API",
+                        "relations": {
+                          "parent": "MCPServer"
+                        },
+                        "id": "DemoApi",
+                        "access": "ACCESS_INTERNAL"
+                      },
+                      "analytics": {
+                        "method_name_max_segments": 1
+                      }
+                    }
+                  }
+                },
+                "typed_per_filter_config": {
+                  "envoy.filters.http.cors": {
+                    "@type": "type.googleapis.com/envoy.extensions.filters.http.cors.v3.CorsPolicy",
+                    "allow_origin_string_match": [
+                      {
+                        "safe_regex": {
+                          "regex": ".+"
+                        }
+                      }
+                    ],
+                    "allow_methods": "POST,GET",
+                    "allow_headers": "accept,authorization,content-type,last-event-id,mcp-protocol-version,mcp-session-id,x-api-key,x-backend,x-user-agent,tracking-id",
+                    "expose_headers": "mcp-session-id,tracking-id,www-authenticate",
+                    "max_age": "60",
+                    "allow_credentials": true,
+                    "filter_enabled": {
+                      "default_value": {
+                        "numerator": 100
+                      }
+                    },
+                    "forward_not_matching_preflights": true
+                  }
+                },
+                "name": "DemoApi.mcp-well-known.demo-default.1"
+              },
+              {
+                "match": {
+                  "path": "/demo/inspector-client.json",
+                  "case_sensitive": true,
+                  "headers": [
+                    {
+                      "name": ":method",
+                      "string_match": {
+                        "safe_regex": {
+                          "regex": "GET|OPTIONS"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "route": {
+                  "cluster": "external.demo-api.443",
+                  "prefix_rewrite": "/inspector-client.json",
+                  "auto_host_rewrite": true
+                },
+                "metadata": {
+                  "filter_metadata": {
+                    "demo_context": {
+                      "route": {
+                        "id": "mcp-test-client-metadata"
+                      },
+                      "analytics": {
+                        "method_name_max_segments": 1
+                      },
+                      "api_product": {
+                        "id": "DemoApi",
+                        "access": "ACCESS_INTERNAL",
+                        "relations": {
+                          "parent": "MCPServer"
+                        },
+                        "display_name": "Demo API"
+                      },
+                      "policies": {
+                        "ratelimit": {
+                          "quota": {
+                            "unit": "SECOND",
+                            "requests_per_unit": 50
+                          }
+                        },
+                        "authnz": {
+                          "anonymous": true
+                        }
+                      },
+                      "proxy": {
+                        "id": "DemoApi"
+                      }
+                    }
+                  }
+                },
+                "typed_per_filter_config": {
+                  "envoy.filters.http.cors": {
+                    "@type": "type.googleapis.com/envoy.extensions.filters.http.cors.v3.CorsPolicy",
+                    "allow_origin_string_match": [
+                      {
+                        "safe_regex": {
+                          "regex": ".+"
+                        }
+                      }
+                    ],
+                    "allow_methods": "POST,GET",
+                    "allow_headers": "accept,authorization,content-type,last-event-id,mcp-protocol-version,mcp-session-id,x-api-key,x-backend,x-user-agent,tracking-id",
+                    "expose_headers": "mcp-session-id,tracking-id,www-authenticate",
+                    "max_age": "60",
+                    "allow_credentials": true,
+                    "filter_enabled": {
+                      "default_value": {
+                        "numerator": 100
+                      }
+                    },
+                    "forward_not_matching_preflights": true
+                  }
+                },
+                "name": "DemoApi.mcp-test-client-metadata.demo-default.0"
+              },
+              {
+                "match": {
+                  "path": "/.well-known/example-challenge",
+                  "case_sensitive": true,
+                  "headers": [
+                    {
+                      "name": ":method",
+                      "string_match": {
+                        "safe_regex": {
+                          "regex": "GET|OPTIONS"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "metadata": {
+                  "filter_metadata": {
+                    "demo_context": {
+                      "policies": {
+                        "ratelimit": {
+                          "quota": {
+                            "unit": "SECOND",
+                            "requests_per_unit": 50
+                          }
+                        },
+                        "authnz": {
+                          "anonymous": true
+                        }
+                      },
+                      "route": {
+                        "id": "example-challenge"
+                      },
+                      "analytics": {
+                        "method_name_max_segments": 1
+                      },
+                      "api_product": {
+                        "id": "DemoApi",
+                        "relations": {
+                          "parent": "MCPServer"
+                        },
+                        "access": "ACCESS_INTERNAL",
+                        "display_name": "Demo API"
+                      },
+                      "proxy": {
+                        "id": "DemoApi"
+                      }
+                    }
+                  }
+                },
+                "direct_response": {
+                  "status": 200,
+                  "body": {
+                    "inline_string": "EXAMPLE-OPAQUE-TOKEN"
+                  }
+                },
+                "typed_per_filter_config": {
+                  "envoy.filters.http.cors": {
+                    "@type": "type.googleapis.com/envoy.extensions.filters.http.cors.v3.CorsPolicy",
+                    "allow_origin_string_match": [
+                      {
+                        "safe_regex": {
+                          "regex": ".+"
+                        }
+                      }
+                    ],
+                    "allow_methods": "POST,GET",
+                    "allow_headers": "accept,authorization,content-type,last-event-id,mcp-protocol-version,mcp-session-id,x-api-key,x-backend,x-user-agent,tracking-id",
+                    "expose_headers": "mcp-session-id,tracking-id,www-authenticate",
+                    "max_age": "60",
+                    "allow_credentials": true,
+                    "filter_enabled": {
+                      "default_value": {
+                        "numerator": 100
+                      }
+                    },
+                    "forward_not_matching_preflights": true
+                  }
+                },
+                "name": "DemoApi.example-challenge.example-challenge.0"
+              },
+              {
+                "match": {
+                  "path": "/search/health",
+                  "case_sensitive": true,
+                  "headers": [
+                    {
+                      "name": ":method",
+                      "string_match": {
+                        "safe_regex": {
+                          "regex": "GET|OPTIONS"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "route": {
+                  "cluster": "external.demo-search.443",
+                  "prefix_rewrite": "/health",
+                  "auto_host_rewrite": true
+                },
+                "metadata": {
+                  "filter_metadata": {
+                    "demo_context": {
+                      "proxy": {
+                        "id": "demo-search-mcp"
+                      },
+                      "analytics": {
+                        "method_name_max_segments": 1
+                      },
+                      "api_product": {
+                        "access": "ACCESS_INTERNAL",
+                        "id": "DemoSearch",
+                        "display_name": "Demo Search",
+                        "relations": {
+                          "parent": "ExampleSearchApi"
+                        }
+                      },
+                      "route": {
+                        "id": "mcp-endpoint-healthcheck"
+                      },
+                      "policies": {
+                        "authnz": {
+                          "oauth": {
+                            "issuers": [
+                              {
+                                "issuer": {
+                                  "name": "ExampleAuth",
+                                  "iss": "https://auth.example.com"
+                                }
+                              }
+                            ]
+                          },
+                          "legacy_key": {
+                            "extract": {
+                              "header": "x-api-key"
+                            }
+                          }
+                        },
+                        "ratelimit": {
+                          "quota": {
+                            "requests_per_unit": 10,
+                            "unit": "SECOND"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "typed_per_filter_config": {
+                  "envoy.filters.http.cors": {
+                    "@type": "type.googleapis.com/envoy.extensions.filters.http.cors.v3.CorsPolicy",
+                    "allow_origin_string_match": [
+                      {
+                        "safe_regex": {
+                          "regex": ".+"
+                        }
+                      }
+                    ],
+                    "allow_methods": "POST,GET",
+                    "allow_headers": "accept,content-type,last-event-id,mcp-protocol-version,mcp-session-id,x-api-key,x-backend,x-user-agent,tracking-id,x-request-id,x-request-context,Authorization,Content-Type",
+                    "expose_headers": "mcp-session-id,tracking-id,www-authenticate,x-request-id,x-request-context",
+                    "max_age": "3600",
+                    "allow_credentials": true,
+                    "filter_enabled": {
+                      "default_value": {
+                        "numerator": 100
+                      }
+                    },
+                    "forward_not_matching_preflights": true
+                  }
+                },
+                "name": "DemoSearch.mcp-endpoint-healthcheck.search-healthcheck.0"
+              },
+              {
+                "match": {
+                  "path": "/search",
+                  "case_sensitive": true,
+                  "headers": [
+                    {
+                      "name": ":method",
+                      "string_match": {
+                        "safe_regex": {
+                          "regex": "POST|GET|OPTIONS"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "route": {
+                  "cluster": "external.demo-search.443",
+                  "prefix_rewrite": "/mcp/",
+                  "auto_host_rewrite": true
+                },
+                "metadata": {
+                  "filter_metadata": {
+                    "demo_context": {
+                      "policies": {
+                        "ratelimit": {
+                          "quota": {
+                            "requests_per_unit": 10,
+                            "unit": "SECOND"
+                          }
+                        },
+                        "authnz": {
+                          "oauth": {
+                            "issuers": [
+                              {
+                                "issuer": {
+                                  "name": "ExampleAuth",
+                                  "iss": "https://auth.example.com"
+                                }
+                              }
+                            ]
+                          },
+                          "legacy_key": {
+                            "extract": {
+                              "header": "x-api-key"
+                            }
+                          }
+                        }
+                      },
+                      "proxy": {
+                        "id": "demo-search-mcp"
+                      },
+                      "api_product": {
+                        "id": "DemoSearch",
+                        "display_name": "Demo Search",
+                        "relations": {
+                          "parent": "ExampleSearchApi"
+                        },
+                        "access": "ACCESS_INTERNAL"
+                      },
+                      "analytics": {
+                        "method_name_max_segments": 1
+                      },
+                      "route": {
+                        "id": "mcp-endpoint"
+                      }
+                    }
+                  }
+                },
+                "typed_per_filter_config": {
+                  "envoy.filters.http.cors": {
+                    "@type": "type.googleapis.com/envoy.extensions.filters.http.cors.v3.CorsPolicy",
+                    "allow_origin_string_match": [
+                      {
+                        "safe_regex": {
+                          "regex": ".+"
+                        }
+                      }
+                    ],
+                    "allow_methods": "POST,GET",
+                    "allow_headers": "accept,content-type,last-event-id,mcp-protocol-version,mcp-session-id,x-api-key,x-backend,x-user-agent,tracking-id,x-request-id,x-request-context,Authorization,Content-Type",
+                    "expose_headers": "mcp-session-id,tracking-id,www-authenticate,x-request-id,x-request-context",
+                    "max_age": "3600",
+                    "allow_credentials": true,
+                    "filter_enabled": {
+                      "default_value": {
+                        "numerator": 100
+                      }
+                    },
+                    "forward_not_matching_preflights": true
+                  }
+                },
+                "name": "DemoSearch.mcp-endpoint.search-default.0"
+              }
+            ]
+          }
+        ],
+        "request_headers_to_remove": [
+          "x-envoy-decorator-operation",
+          "x-envoy-peer-metadata",
+          "x-envoy-peer-metadata-id"
+        ],
+        "ignore_port_in_host_matching": true
+      },
+      "last_updated": "2026-10-23T08:40:13.997Z"
+    }
+  ]
+}

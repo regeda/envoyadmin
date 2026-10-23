@@ -29,6 +29,7 @@ type Options struct {
 	Ctx    context.Context
 	Config config.Config
 	Fetch  Fetcher
+	Routes RouteFetcher // nil: route search is unavailable
 	Clock  func() time.Time
 	Color  bool
 }
@@ -72,6 +73,13 @@ type Model struct {
 	width, height int
 	views         [kindCount]view // an array, so a Model copy never aliases another's views
 	active        resourceKind
+
+	// Route search. The cache and the refs it was filled with are shared by
+	// Model copies; touch them only from Update.
+	search    routeSearch
+	routes    *routeCache
+	routeRefs map[string][]snapshot.RouteRef
+	pull      routePull
 }
 
 // New returns a model whose first fetch is already considered in flight; Init
@@ -83,7 +91,8 @@ func New(o Options) Model {
 	if o.Ctx == nil {
 		o.Ctx = context.Background()
 	}
-	m := Model{opts: o, inflight: true, state: stateConnecting}
+	m := Model{opts: o, inflight: true, state: stateConnecting,
+		routes: newRouteCache(), routeRefs: map[string][]snapshot.RouteRef{}}
 	for k := resourceKind(0); k < kindCount; k++ {
 		m.views[k] = newView(resources[k], o.Color)
 	}
@@ -114,8 +123,16 @@ func (m Model) headerRows() int {
 	return 4
 }
 
+// inputRows is the row the route search input takes above the panes.
+func (m Model) inputRows() int {
+	if m.searching() {
+		return 1
+	}
+	return 0
+}
+
 func (m Model) paneHeight() int {
-	return max(m.height-m.headerRows()-m.bannerRows-footerRows, 1)
+	return max(m.height-m.headerRows()-m.bannerRows-m.inputRows()-footerRows, 1)
 }
 
 // listWidth is 30% of the terminal, but never below 28 cells (the narrowest
@@ -125,7 +142,7 @@ func (m Model) listWidth() int { return max(m.width*30/100, 28) }
 func (m *Model) layout() {
 	m.bannerRows = 0
 	if m.bannerVisible() {
-		m.bannerRows = len(bannerLines(m.bannerText(), m.width, bannerRowBudget(m.height, m.headerRows())))
+		m.bannerRows = len(bannerLines(m.bannerText(), m.width, bannerRowBudget(m.height, m.headerRows()+m.inputRows())))
 	}
 	listW := m.listWidth()
 	detailW := max(m.width-listW-1, 1)
@@ -133,6 +150,7 @@ func (m *Model) layout() {
 		m.views[k].list.SetSize(listW, m.paneHeight())
 		m.views[k].detail.SetSize(detailW, m.paneHeight())
 	}
+	m.search.SetSize(m.width, listW, detailW, m.paneHeight())
 }
 
 func (m *Model) syncDetails() {
@@ -203,7 +221,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			v.list.SetNotice(resources[k].notice(msg.snap))
 			v.list.SetItems(resources[k].items(msg.snap))
 		}
+		m.syncRoutes(msg.snap)
 		m.syncDetails()
+		return m, nil
+
+	case routesMsg:
+		m.handleRoutes(msg)
 		return m, nil
 
 	case tea.KeyMsg:
@@ -230,6 +253,9 @@ func (m *Model) switchTo(k resourceKind) {
 func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if k.String() == "ctrl+c" {
 		return m, tea.Quit
+	}
+	if m.searching() {
+		return m.handleSearchKey(k)
 	}
 	if m.focus == focusList && m.cur().list.filtering {
 		switch k.String() {
@@ -277,6 +303,8 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cur().detail.SetTab(tabConfig)
 	case "o", "e":
 		m.cur().detail.SetTab(tabOverview)
+	case ":":
+		m.openSearch()
 	default:
 		if k.String() == "/" {
 			m.setFocus(focusList)
@@ -329,15 +357,38 @@ func (m Model) bannerText() string {
 // narrow terminal that clips the end still shows how to close help and quit.
 const helpLine = "x dismiss  r refresh  ? close  q quit  tab/shift+tab  enter  esc  ↑↓/jk g/G PgUp/PgDn  / filter  c config  o/e overview"
 
+// listenersHelpLine is helpLine with the route search key, which nobody
+// guesses, among the first. Single spaces keep every key inside 120 columns.
+const listenersHelpLine = "x dismiss r refresh ? close q quit : routes tab/shift+tab enter esc ↑↓/jk g/G PgUp/PgDn / filter c config o/e overview"
+
+// searchHelpLine lists the route search keys; every other key is input.
+const searchHelpLine = "esc close  enter run  ↑↓ move  tab overview/config  PgUp/PgDn scroll  :name <text>  :curl <url>"
+
 func (m Model) statusLine() string {
+	if m.help && m.searching() {
+		return renderStatus(m.width, " "+searchHelpLine, "")
+	}
+	if m.help && m.active == kindListeners {
+		return renderStatus(m.width, " "+listenersHelpLine, "")
+	}
 	if m.help {
 		return renderStatus(m.width, " "+helpLine, "") // the summary gives way to the keys
+	}
+	if m.searching() {
+		left := " routes of " + m.search.listener.Name
+		if m.pull.active {
+			left += " ↻"
+		}
+		return renderStatus(m.width, left, "enter run · esc close · ↑↓ move · tab overview/config · PgUp/PgDn scroll ")
 	}
 	left := " " + resources[m.active].summary(m.snap)
 	if m.inflight {
 		left += " ↻"
 	}
 	right := "? help · q quit · tab switch · enter details · / filter · c config · o overview · r refresh "
+	if m.active == kindListeners {
+		right = "? help · q quit · tab switch · enter details · / filter · : routes · c config · r refresh "
+	}
 	if m.focus == focusDetail {
 		left += " · focus: detail"
 		right = "esc back · ↑↓ scroll · c config · o overview · q quit "
@@ -349,7 +400,11 @@ func (m Model) statusLine() string {
 // JoinHorizontal keeps the columns aligned.
 func (m Model) detailBlock() string {
 	w := max(m.width-m.listWidth()-1, 1)
-	rows := strings.Split(m.views[m.active].detail.View(), "\n")
+	d := m.views[m.active].detail
+	if m.searching() {
+		d = m.search.detail
+	}
+	rows := strings.Split(d.View(), "\n")
 	for i, r := range rows {
 		rows[i] = pad(trunc(r, w), w)
 	}
@@ -373,11 +428,18 @@ func (m Model) View() string {
 
 	paneH := m.paneHeight()
 	sep := dimStyle.Render(strings.TrimSuffix(strings.Repeat("│\n", paneH), "\n"))
-	panes := lipgloss.JoinHorizontal(lipgloss.Top, m.views[m.active].list.View(), sep, m.detailBlock())
+	list := m.views[m.active].list.View()
+	if m.searching() {
+		list = m.search.listView(m.listWidth(), paneH)
+	}
+	panes := lipgloss.JoinHorizontal(lipgloss.Top, list, sep, m.detailBlock())
 
 	frame := header + "\n"
 	if banner := m.banner(); len(banner) > 0 {
 		frame += strings.Join(banner, "\n") + "\n"
+	}
+	if m.searching() {
+		frame += m.search.inputView(m.width) + "\n"
 	}
 	return frame + panes + "\n" + m.statusLine()
 }

@@ -469,7 +469,12 @@ func helpStatus(t *testing.T, w int, detail bool) string {
 	if detail {
 		m = send(m, key("enter"))
 	}
-	m = send(m, key("?"))
+	return lastLine(t, send(m, key("?")), w)
+}
+
+// lastLine is the status line of m's frame, checked to fit w.
+func lastLine(t *testing.T, m Model, w int) string {
+	t.Helper()
 	lines := strings.Split(m.View(), "\n")
 	status := ansi.Strip(lines[len(lines)-1])
 	if lipgloss.Width(status) > w {
@@ -486,6 +491,36 @@ func TestHelpLineShowsEveryKeyFrom120Columns(t *testing.T) {
 			for _, want := range every {
 				if !strings.Contains(status, want) {
 					t.Fatalf("w=%d detail=%v: help line misses %q: %q", w, detail, want, status)
+				}
+			}
+		}
+	}
+}
+
+func TestListenersAndSearchHelpShowEveryKeyFrom120Columns(t *testing.T) {
+	every := []string{"tab/shift+tab", "enter", "esc", "↑↓/jk", "g/G", "PgUp/PgDn", "/ filter", ": routes", "c config", "o/e overview", "r refresh", "x dismiss", "? close", "q quit"}
+	search := []string{"esc close", "enter run", "↑↓ move", "tab overview/config", "PgUp/PgDn scroll", ":name <text>", ":curl <url>"}
+	for _, w := range []int{120, 140, 200} {
+		for _, detail := range []bool{false, true} {
+			m := sized(New(testOpts(nil)), w, 30)
+			m = send(send(m, snapshotMsg{snap: lsnap(lst("l", "0.0.0.0:80", snapshot.ListenerActive))}), key("tab"))
+			if detail {
+				m = send(m, key("enter"))
+			}
+			m = send(m, key("?"))
+			status := lastLine(t, m, w)
+			for _, want := range every {
+				if !strings.Contains(status, want) {
+					t.Fatalf("w=%d detail=%v: listeners help misses %q: %q", w, detail, want, status)
+				}
+			}
+			if detail {
+				continue
+			}
+			status = lastLine(t, send(m, key(":")), w)
+			for _, want := range search {
+				if !strings.Contains(status, want) {
+					t.Fatalf("w=%d: search help misses %q: %q", w, want, status)
 				}
 			}
 		}

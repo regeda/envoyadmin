@@ -22,6 +22,8 @@ type Client interface {
 	ClusterConfigs(ctx context.Context) ([]ClusterConfig, error)
 	ListenerConfigs(ctx context.Context) ([]ListenerConfig, error)
 	SecretConfigs(ctx context.Context) ([]SecretConfig, error)
+	// RouteConfigs fetches only the named route configs; no names, no request.
+	RouteConfigs(ctx context.Context, names []string) ([]RouteConfig, error)
 	ServerInfo(ctx context.Context) (*adminv3.ServerInfo, error)
 }
 
@@ -151,6 +153,26 @@ func (h *HTTP) SecretConfigs(ctx context.Context) ([]SecretConfig, error) {
 		cfgs, err := decodeSecretConfigs(body, r.state)
 		if err != nil {
 			return nil, fmt.Errorf("GET /config_dump: decode %s: %w", r.resource, err)
+		}
+		all = append(all, cfgs...)
+	}
+	return all, nil
+}
+
+func (h *HTTP) RouteConfigs(ctx context.Context, names []string) ([]RouteConfig, error) {
+	if len(names) == 0 {
+		return nil, nil
+	}
+	re := routeNameRegex(names)
+	var all []RouteConfig
+	for _, res := range []string{"dynamic_route_configs", "static_route_configs"} {
+		body, err := h.get(ctx, "/config_dump", url.Values{"resource": {res}, "name_regex": {re}})
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", res, err)
+		}
+		cfgs, err := decodeRouteConfigs(body, res == "static_route_configs")
+		if err != nil {
+			return nil, fmt.Errorf("GET /config_dump: decode %s: %w", res, err)
 		}
 		all = append(all, cfgs...)
 	}

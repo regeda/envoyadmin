@@ -197,3 +197,14 @@ func TestSecretOverviewActiveCertListsUsers(t *testing.T) {
 		}
 	}
 }
+
+// One frame of the route search: the input, three hits with a winner and the
+// selected route's config.
+func TestGoldenRouteSearch(t *testing.T) {
+	c := &clock{now: fixedNow}
+	s := listenerSnap(t, rdsListener("a-edge", "edge-routes"), tcpListener("z-tcp"))
+	m := searchModel(t, s, &fakeRoutes{cfgs: edgeConfigs()}, c)
+	m = typeText(send(m, key(":")), "curl http://h/logon/x")
+	m, cmd := sendCmd(m, key("enter"))
+	golden(t, drive(m, cmd))
+}

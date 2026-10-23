@@ -477,3 +477,71 @@ func TestCertPEMRoundTrips(t *testing.T) {
 		t.Fatalf("%v %+v", err, c)
 	}
 }
+
+func routeConfigNames(t *testing.T, body string) []string {
+	t.Helper()
+	var dump struct {
+		Configs []struct {
+			RouteConfig struct {
+				Name string `json:"name"`
+			} `json:"route_config"`
+		} `json:"configs"`
+	}
+	if err := json.Unmarshal([]byte(body), &dump); err != nil {
+		t.Fatalf("%v: %s", err, body)
+	}
+	names := []string{}
+	for _, c := range dump.Configs {
+		names = append(names, c.RouteConfig.Name)
+	}
+	return names
+}
+
+func TestRouteConfigDumpFiltersByNameRegex(t *testing.T) {
+	srv := httptest.NewServer(NewServer(Degraded()))
+	defer srv.Close()
+	dump := func(q string) []string {
+		code, body := get(t, srv.URL+"/config_dump?"+q)
+		if code != 200 {
+			t.Fatalf("%s: %d %s", q, code, body)
+		}
+		return routeConfigNames(t, body)
+	}
+	if all := dump("resource=dynamic_route_configs"); len(all) != 2 {
+		t.Fatalf("unfiltered = %v, want both configs", all)
+	}
+	one := dump("resource=dynamic_route_configs&name_regex=public-api")
+	if len(one) != 1 || one[0] != "public-api" {
+		t.Fatalf("exact name = %v", one)
+	}
+	if got := dump("resource=dynamic_route_configs&name_regex=public"); len(got) != 0 {
+		t.Fatalf("a prefix must not match (full match): %v", got)
+	}
+	if got := dump("resource=dynamic_route_configs&name_regex=api"); len(got) != 0 {
+		t.Fatalf("a substring must not match (full match): %v", got)
+	}
+	if got := dump("resource=dynamic_route_configs&name_regex=" + "(%3F%3Apublic-api%7Cinbound-routes)"); len(got) != 2 {
+		t.Fatalf("alternation = %v", got)
+	}
+	if got := dump("resource=static_route_configs"); len(got) != 0 {
+		t.Fatalf("static = %v, want none", got)
+	}
+	code, _ := get(t, srv.URL+"/config_dump?resource=dynamic_route_configs&name_regex=%28")
+	if code != http.StatusBadRequest {
+		t.Fatalf("invalid regex status = %d", code)
+	}
+}
+
+func TestListenerHCMCarriesRouteConfigName(t *testing.T) {
+	sc := Degraded()
+	b, ok := sc.ConfigDumpJSON("dynamic_listeners")
+	if !ok {
+		t.Fatal("no dump")
+	}
+	if !strings.Contains(string(b), `"route_config_name":"public-api"`) {
+		t.Fatalf("no rds.route_config_name in %s", b)
+	}
+	if _, ok := sc.RouteConfigsJSON("nope", ""); ok {
+		t.Fatal("unknown resource must not be ok")
+	}
+}
