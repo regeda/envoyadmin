@@ -18,7 +18,10 @@ func oneVHost(t *testing.T, routes ...string) []RouteConfig {
 
 func req(method, host, port, rawPath string, headers map[string][]string) Request {
 	p, q, _ := strings.Cut(rawPath, "?")
-	vals, _ := url.ParseQuery(q)
+	vals, err := url.ParseQuery(q)
+	if err != nil {
+		panic(err) // a malformed test fixture
+	}
 	if headers == nil {
 		headers = map[string][]string{}
 	}
@@ -86,50 +89,51 @@ func TestMatchRoutesHeaders(t *testing.T) {
 	hdr := func(h string) string { return `{"prefix":"/","headers":[` + h + `]}` }
 	xa := map[string][]string{"x-a": {"Hello-World"}}
 	tests := []struct {
-		name, match string
-		r           Request
-		want        bool
+		name  string
+		match string
+		r     Request
+		want  bool
 	}{
-		{"authority regex", hdr(`{"name":":authority","string_match":{"safe_regex":{"regex":"a\\.example\\.com|b\\.example\\.com"}}}`), req("GET", "b.example.com", "", "/", nil), true},
-		{"authority regex miss", hdr(`{"name":":authority","string_match":{"safe_regex":{"regex":"a\\.example\\.com"}}}`), req("GET", "xa.example.com", "", "/", nil), false},
-		{"authority carries port", hdr(`{"name":":authority","string_match":{"safe_regex":{"regex":"a\\.example\\.com(:[0-9]+)?"}}}`), req("GET", "a.example.com", "8443", "/", nil), true},
-		{"authority port exact", hdr(`{"name":":authority","string_match":{"exact":"a.example.com:8443"}}`), req("GET", "a.example.com", "8443", "/", nil), true},
-		{"exact", hdr(`{"name":"x-a","string_match":{"exact":"Hello-World"}}`), req("GET", "h", "", "/", xa), true},
-		{"exact case", hdr(`{"name":"x-a","string_match":{"exact":"hello-world"}}`), req("GET", "h", "", "/", xa), false},
-		{"exact ignore_case", hdr(`{"name":"x-a","string_match":{"exact":"hello-world","ignore_case":true}}`), req("GET", "h", "", "/", xa), true},
-		{"name case-insensitive", hdr(`{"name":"X-A","string_match":{"exact":"Hello-World"}}`), req("GET", "h", "", "/", xa), true},
-		{"prefix", hdr(`{"name":"x-a","string_match":{"prefix":"Hello"}}`), req("GET", "h", "", "/", xa), true},
-		{"prefix miss", hdr(`{"name":"x-a","string_match":{"prefix":"World"}}`), req("GET", "h", "", "/", xa), false},
-		{"suffix", hdr(`{"name":"x-a","string_match":{"suffix":"World"}}`), req("GET", "h", "", "/", xa), true},
-		{"contains", hdr(`{"name":"x-a","string_match":{"contains":"o-W"}}`), req("GET", "h", "", "/", xa), true},
-		{"contains ignore_case", hdr(`{"name":"x-a","string_match":{"contains":"O-w","ignore_case":true}}`), req("GET", "h", "", "/", xa), true},
-		{"legacy exact", hdr(`{"name":"x-a","exact_match":"Hello-World"}`), req("GET", "h", "", "/", xa), true},
-		{"legacy prefix", hdr(`{"name":"x-a","prefix_match":"Hel"}`), req("GET", "h", "", "/", xa), true},
-		{"legacy suffix", hdr(`{"name":"x-a","suffix_match":"xyz"}`), req("GET", "h", "", "/", xa), false},
-		{"legacy contains", hdr(`{"name":"x-a","contains_match":"lo-Wo"}`), req("GET", "h", "", "/", xa), true},
-		{"legacy regex", hdr(`{"name":"x-a","safe_regex_match":{"regex":"Hello-.*"}}`), req("GET", "h", "", "/", xa), true},
-		{"regex full match", hdr(`{"name":"x-a","safe_regex_match":{"regex":"Hello"}}`), req("GET", "h", "", "/", xa), false},
-		{"present", hdr(`{"name":"x-a","present_match":true}`), req("GET", "h", "", "/", xa), true},
-		{"present absent", hdr(`{"name":"x-b","present_match":true}`), req("GET", "h", "", "/", xa), false},
-		{"present false absent", hdr(`{"name":"x-b","present_match":false}`), req("GET", "h", "", "/", xa), true},
-		{"name only is present", hdr(`{"name":"x-a"}`), req("GET", "h", "", "/", xa), true},
-		{"range in", hdr(`{"name":"x-n","range_match":{"start":"10","end":"20"}}`), req("GET", "h", "", "/", map[string][]string{"x-n": {"10"}}), true},
-		{"range end exclusive", hdr(`{"name":"x-n","range_match":{"start":10,"end":20}}`), req("GET", "h", "", "/", map[string][]string{"x-n": {"20"}}), false},
-		{"range not a number", hdr(`{"name":"x-n","range_match":{"start":"10","end":"20"}}`), req("GET", "h", "", "/", map[string][]string{"x-n": {"abc"}}), false},
-		{"invert", hdr(`{"name":"x-a","string_match":{"exact":"nope"},"invert_match":true}`), req("GET", "h", "", "/", xa), true},
-		{"invert miss", hdr(`{"name":"x-a","string_match":{"exact":"Hello-World"},"invert_match":true}`), req("GET", "h", "", "/", xa), false},
-		{"invert present", hdr(`{"name":"x-a","present_match":true,"invert_match":true}`), req("GET", "h", "", "/", xa), false},
-		{"invert absent string", hdr(`{"name":"x-b","string_match":{"exact":"v"},"invert_match":true}`), req("GET", "h", "", "/", xa), false},
-		{"missing as empty", hdr(`{"name":"x-b","string_match":{"exact":"v"},"invert_match":true,"treat_missing_header_as_empty":true}`), req("GET", "h", "", "/", xa), true},
-		{"multi values joined", hdr(`{"name":"x-m","string_match":{"exact":"a,b"}}`), req("GET", "h", "", "/", map[string][]string{"x-m": {"a", "b"}}), true},
-		{"method", hdr(`{"name":":method","string_match":{"safe_regex":{"regex":"POST|GET"}}}`), req("GET", "h", "", "/", nil), true},
-		{"method miss", hdr(`{"name":":method","string_match":{"exact":"POST"}}`), req("GET", "h", "", "/", nil), false},
-		{"present ignores missing as empty", hdr(`{"name":"x-b","present_match":true,"treat_missing_header_as_empty":true}`), req("GET", "h", "", "/", xa), false},
-		{"present false ignores missing as empty", hdr(`{"name":"x-b","present_match":false,"treat_missing_header_as_empty":true}`), req("GET", "h", "", "/", xa), true},
-		{"path pseudo header exact no query", hdr(`{"name":":path","string_match":{"exact":"/p"}}`), req("GET", "h", "", "/p", nil), true},
-		{"path pseudo header regex no query", hdr(`{"name":":path","string_match":{"safe_regex":{"regex":"/q"}}}`), req("GET", "h", "", "/p", nil), false},
-		{"path pseudo header plain", hdr(`{"name":":path","string_match":{"prefix":"/p"}}`), req("GET", "h", "", "/p", nil), true},
-		{"all headers must match", hdr(`{"name":"x-a","present_match":true},{"name":"x-b","present_match":true}`), req("GET", "h", "", "/", xa), false},
+		{name: "authority regex", match: hdr(`{"name":":authority","string_match":{"safe_regex":{"regex":"a\\.example\\.com|b\\.example\\.com"}}}`), r: req("GET", "b.example.com", "", "/", nil), want: true},
+		{name: "authority regex miss", match: hdr(`{"name":":authority","string_match":{"safe_regex":{"regex":"a\\.example\\.com"}}}`), r: req("GET", "xa.example.com", "", "/", nil), want: false},
+		{name: "authority carries port", match: hdr(`{"name":":authority","string_match":{"safe_regex":{"regex":"a\\.example\\.com(:[0-9]+)?"}}}`), r: req("GET", "a.example.com", "8443", "/", nil), want: true},
+		{name: "authority port exact", match: hdr(`{"name":":authority","string_match":{"exact":"a.example.com:8443"}}`), r: req("GET", "a.example.com", "8443", "/", nil), want: true},
+		{name: "exact", match: hdr(`{"name":"x-a","string_match":{"exact":"Hello-World"}}`), r: req("GET", "h", "", "/", xa), want: true},
+		{name: "exact case", match: hdr(`{"name":"x-a","string_match":{"exact":"hello-world"}}`), r: req("GET", "h", "", "/", xa), want: false},
+		{name: "exact ignore_case", match: hdr(`{"name":"x-a","string_match":{"exact":"hello-world","ignore_case":true}}`), r: req("GET", "h", "", "/", xa), want: true},
+		{name: "name case-insensitive", match: hdr(`{"name":"X-A","string_match":{"exact":"Hello-World"}}`), r: req("GET", "h", "", "/", xa), want: true},
+		{name: "prefix", match: hdr(`{"name":"x-a","string_match":{"prefix":"Hello"}}`), r: req("GET", "h", "", "/", xa), want: true},
+		{name: "prefix miss", match: hdr(`{"name":"x-a","string_match":{"prefix":"World"}}`), r: req("GET", "h", "", "/", xa), want: false},
+		{name: "suffix", match: hdr(`{"name":"x-a","string_match":{"suffix":"World"}}`), r: req("GET", "h", "", "/", xa), want: true},
+		{name: "contains", match: hdr(`{"name":"x-a","string_match":{"contains":"o-W"}}`), r: req("GET", "h", "", "/", xa), want: true},
+		{name: "contains ignore_case", match: hdr(`{"name":"x-a","string_match":{"contains":"O-w","ignore_case":true}}`), r: req("GET", "h", "", "/", xa), want: true},
+		{name: "legacy exact", match: hdr(`{"name":"x-a","exact_match":"Hello-World"}`), r: req("GET", "h", "", "/", xa), want: true},
+		{name: "legacy prefix", match: hdr(`{"name":"x-a","prefix_match":"Hel"}`), r: req("GET", "h", "", "/", xa), want: true},
+		{name: "legacy suffix", match: hdr(`{"name":"x-a","suffix_match":"xyz"}`), r: req("GET", "h", "", "/", xa), want: false},
+		{name: "legacy contains", match: hdr(`{"name":"x-a","contains_match":"lo-Wo"}`), r: req("GET", "h", "", "/", xa), want: true},
+		{name: "legacy regex", match: hdr(`{"name":"x-a","safe_regex_match":{"regex":"Hello-.*"}}`), r: req("GET", "h", "", "/", xa), want: true},
+		{name: "regex full match", match: hdr(`{"name":"x-a","safe_regex_match":{"regex":"Hello"}}`), r: req("GET", "h", "", "/", xa), want: false},
+		{name: "present", match: hdr(`{"name":"x-a","present_match":true}`), r: req("GET", "h", "", "/", xa), want: true},
+		{name: "present absent", match: hdr(`{"name":"x-b","present_match":true}`), r: req("GET", "h", "", "/", xa), want: false},
+		{name: "present false absent", match: hdr(`{"name":"x-b","present_match":false}`), r: req("GET", "h", "", "/", xa), want: true},
+		{name: "name only is present", match: hdr(`{"name":"x-a"}`), r: req("GET", "h", "", "/", xa), want: true},
+		{name: "range in", match: hdr(`{"name":"x-n","range_match":{"start":"10","end":"20"}}`), r: req("GET", "h", "", "/", map[string][]string{"x-n": {"10"}}), want: true},
+		{name: "range end exclusive", match: hdr(`{"name":"x-n","range_match":{"start":10,"end":20}}`), r: req("GET", "h", "", "/", map[string][]string{"x-n": {"20"}}), want: false},
+		{name: "range not a number", match: hdr(`{"name":"x-n","range_match":{"start":"10","end":"20"}}`), r: req("GET", "h", "", "/", map[string][]string{"x-n": {"abc"}}), want: false},
+		{name: "invert", match: hdr(`{"name":"x-a","string_match":{"exact":"nope"},"invert_match":true}`), r: req("GET", "h", "", "/", xa), want: true},
+		{name: "invert miss", match: hdr(`{"name":"x-a","string_match":{"exact":"Hello-World"},"invert_match":true}`), r: req("GET", "h", "", "/", xa), want: false},
+		{name: "invert present", match: hdr(`{"name":"x-a","present_match":true,"invert_match":true}`), r: req("GET", "h", "", "/", xa), want: false},
+		{name: "invert absent string", match: hdr(`{"name":"x-b","string_match":{"exact":"v"},"invert_match":true}`), r: req("GET", "h", "", "/", xa), want: false},
+		{name: "missing as empty", match: hdr(`{"name":"x-b","string_match":{"exact":"v"},"invert_match":true,"treat_missing_header_as_empty":true}`), r: req("GET", "h", "", "/", xa), want: true},
+		{name: "multi values joined", match: hdr(`{"name":"x-m","string_match":{"exact":"a,b"}}`), r: req("GET", "h", "", "/", map[string][]string{"x-m": {"a", "b"}}), want: true},
+		{name: "method", match: hdr(`{"name":":method","string_match":{"safe_regex":{"regex":"POST|GET"}}}`), r: req("GET", "h", "", "/", nil), want: true},
+		{name: "method miss", match: hdr(`{"name":":method","string_match":{"exact":"POST"}}`), r: req("GET", "h", "", "/", nil), want: false},
+		{name: "present ignores missing as empty", match: hdr(`{"name":"x-b","present_match":true,"treat_missing_header_as_empty":true}`), r: req("GET", "h", "", "/", xa), want: false},
+		{name: "present false ignores missing as empty", match: hdr(`{"name":"x-b","present_match":false,"treat_missing_header_as_empty":true}`), r: req("GET", "h", "", "/", xa), want: true},
+		{name: "path pseudo header exact no query", match: hdr(`{"name":":path","string_match":{"exact":"/p"}}`), r: req("GET", "h", "", "/p", nil), want: true},
+		{name: "path pseudo header regex no query", match: hdr(`{"name":":path","string_match":{"safe_regex":{"regex":"/q"}}}`), r: req("GET", "h", "", "/p", nil), want: false},
+		{name: "path pseudo header plain", match: hdr(`{"name":":path","string_match":{"prefix":"/p"}}`), r: req("GET", "h", "", "/p", nil), want: true},
+		{name: "all headers must match", match: hdr(`{"name":"x-a","present_match":true},{"name":"x-b","present_match":true}`), r: req("GET", "h", "", "/", xa), want: false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -474,21 +478,22 @@ func TestMatchRoutesAnyHost(t *testing.T) {
 
 	// A "host" matcher stays not evaluated; other matchers evaluate as usual.
 	cases := []struct {
-		name, match string
-		r           Request
-		want        string
+		name  string
+		match string
+		want  string
+		r     Request
 	}{
-		{"host header", `{"prefix":"/","headers":[{"name":"host","string_match":{"exact":"h"}}]}`, anyHost("GET", "/", nil), "u:not evaluated"},
-		{"path miss", `{"path":"/a","headers":[{"name":":authority","string_match":{"exact":"h"}}]}`, anyHost("GET", "/b", nil), ""},
-		{"method", `{"prefix":"/","headers":[{"name":":method","string_match":{"exact":"POST"}}]}`, anyHost("GET", "/", nil), ""},
-		{"method hit", `{"prefix":"/","headers":[{"name":":method","string_match":{"exact":"POST"}}]}`, anyHost("POST", "/", nil), "u:match"},
-		{"other header", `{"prefix":"/","headers":[{"name":"x-tenant","string_match":{"exact":"acme"}}]}`, anyHost("GET", "/", map[string][]string{"x-tenant": {"acme"}}), "u:match"},
-		{"other header miss", `{"prefix":"/","headers":[{"name":"x-tenant","string_match":{"exact":"acme"}}]}`, anyHost("GET", "/", nil), ""},
-		{"query", `{"prefix":"/","query_parameters":[{"name":"a","string_match":{"exact":"1"}}]}`, anyHost("GET", "/?a=1", nil), "u:match"},
-		{"query miss", `{"prefix":"/","query_parameters":[{"name":"a","string_match":{"exact":"1"}}]}`, anyHost("GET", "/?a=2", nil), ""},
-		{":path no query", `{"prefix":"/","headers":[{"name":":path","string_match":{"exact":"/p"}}]}`, anyHost("GET", "/p", nil), "u:match"},
-		{":path with query", `{"prefix":"/","headers":[{"name":":path","string_match":{"exact":"/p"}}]}`, anyHost("GET", "/p?a=1", nil), "u:not evaluated"},
-		{"bad :authority regex", `{"prefix":"/","headers":[{"name":":authority","string_match":{"safe_regex":{"regex":"a(b"}}}]}`, anyHost("GET", "/", nil), "u:not evaluated"},
+		{name: "host header", match: `{"prefix":"/","headers":[{"name":"host","string_match":{"exact":"h"}}]}`, r: anyHost("GET", "/", nil), want: "u:not evaluated"},
+		{name: "path miss", match: `{"path":"/a","headers":[{"name":":authority","string_match":{"exact":"h"}}]}`, r: anyHost("GET", "/b", nil), want: ""},
+		{name: "method", match: `{"prefix":"/","headers":[{"name":":method","string_match":{"exact":"POST"}}]}`, r: anyHost("GET", "/", nil), want: ""},
+		{name: "method hit", match: `{"prefix":"/","headers":[{"name":":method","string_match":{"exact":"POST"}}]}`, r: anyHost("POST", "/", nil), want: "u:match"},
+		{name: "other header", match: `{"prefix":"/","headers":[{"name":"x-tenant","string_match":{"exact":"acme"}}]}`, r: anyHost("GET", "/", map[string][]string{"x-tenant": {"acme"}}), want: "u:match"},
+		{name: "other header miss", match: `{"prefix":"/","headers":[{"name":"x-tenant","string_match":{"exact":"acme"}}]}`, r: anyHost("GET", "/", nil), want: ""},
+		{name: "query", match: `{"prefix":"/","query_parameters":[{"name":"a","string_match":{"exact":"1"}}]}`, r: anyHost("GET", "/?a=1", nil), want: "u:match"},
+		{name: "query miss", match: `{"prefix":"/","query_parameters":[{"name":"a","string_match":{"exact":"1"}}]}`, r: anyHost("GET", "/?a=2", nil), want: ""},
+		{name: ":path no query", match: `{"prefix":"/","headers":[{"name":":path","string_match":{"exact":"/p"}}]}`, r: anyHost("GET", "/p", nil), want: "u:match"},
+		{name: ":path with query", match: `{"prefix":"/","headers":[{"name":":path","string_match":{"exact":"/p"}}]}`, r: anyHost("GET", "/p?a=1", nil), want: "u:not evaluated"},
+		{name: "bad :authority regex", match: `{"prefix":"/","headers":[{"name":":authority","string_match":{"safe_regex":{"regex":"a(b"}}}]}`, r: anyHost("GET", "/", nil), want: "u:not evaluated"},
 	}
 	for _, tc := range cases {
 		if got := hitNames(MatchRoutes(oneVHost(t, `{"name":"u","match":`+tc.match+`}`), tc.r)); got != tc.want {

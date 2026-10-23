@@ -12,7 +12,6 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-
 	"github.com/regeda/envoyadmin/internal/snapshot"
 )
 
@@ -21,10 +20,11 @@ type RouteFetcher func(ctx context.Context, l snapshot.Listener) ([]snapshot.Rou
 
 // routesMsg is a finished pull for listener, started by query.
 type routesMsg struct {
-	listener, query string
-	cfgs            []snapshot.RouteConfig
-	err             error
-	at              time.Time
+	at       time.Time
+	err      error
+	listener string
+	query    string
+	cfgs     []snapshot.RouteConfig
 }
 
 const (
@@ -60,26 +60,28 @@ func parseSearch(input string) (cmd, arg string, ok bool) {
 
 // routePull is the one pull in flight, and the refs it was started with.
 type routePull struct {
-	active          bool
-	listener, query string
-	refs            []snapshot.RouteRef
+	listener string
+	query    string
+	refs     []snapshot.RouteRef
+	active   bool
 }
 
 // routeSearch is the search mode of the Listeners view. It has its own panes,
 // so the listener list keeps its selection, filter and scroll.
 type routeSearch struct {
-	open      bool
-	listener  snapshot.Listener
-	input     textinput.Model
-	query     string // the query whose results are shown
-	want      string // the latest query entered, shown when its pull lands
-	gone      bool   // the listener left the snapshot
 	status    string
-	statusErr bool
+	query     string
+	want      string
+	input     textinput.Model
+	listener  snapshot.Listener
 	list      listPane
 	detail    detailPane
-	w, h      int // the list column
-	fullW     int // the whole terminal, the input row's width
+	w         int
+	h         int
+	fullW     int
+	gone      bool
+	open      bool
+	statusErr bool
 }
 
 func newRouteSearch(l snapshot.Listener, color bool) routeSearch {
@@ -284,28 +286,8 @@ func (m Model) handleSearchKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *Model) runSearch() tea.Cmd {
 	s := &m.search
 	cmd, arg, ok := parseSearch(":" + strings.TrimPrefix(strings.TrimSpace(s.input.Value()), ":"))
-	switch {
-	case !ok:
-		s.setStatus(searchHint, false)
+	if !m.checkSearch(cmd, arg, ok) {
 		return nil
-	case m.opts.Routes == nil:
-		s.setStatus(searchUnavailable, true)
-		return nil
-	case s.gone:
-		s.setStatus(searchGone, true)
-		return nil
-	case !s.listener.HasHTTP():
-		s.setStatus(snapshot.ErrNoHTTPRoutes.Error(), true)
-		return nil
-	case onlyScoped(s.listener):
-		s.setStatus(searchScoped, true)
-		return nil
-	}
-	if cmd == "curl" {
-		if _, err := snapshot.ParseCurl(arg); err != nil {
-			s.setStatus("curl: "+err.Error(), true)
-			return nil
-		}
 	}
 	query := strings.TrimSpace(":" + cmd + " " + arg)
 	s.want = query
@@ -329,6 +311,33 @@ func (m *Model) runSearch() tea.Cmd {
 	}
 }
 
+// checkSearch reports whether the typed query may run. When it may not, the
+// reason is already in the search status.
+func (m *Model) checkSearch(cmd, arg string, ok bool) bool {
+	s := &m.search
+	switch {
+	case !ok:
+		s.setStatus(searchHint, false)
+	case m.opts.Routes == nil:
+		s.setStatus(searchUnavailable, true)
+	case s.gone:
+		s.setStatus(searchGone, true)
+	case !s.listener.HasHTTP():
+		s.setStatus(snapshot.ErrNoHTTPRoutes.Error(), true)
+	case onlyScoped(s.listener):
+		s.setStatus(searchScoped, true)
+	default:
+		if cmd == "curl" {
+			if _, err := snapshot.ParseCurl(arg); err != nil {
+				s.setStatus("curl: "+err.Error(), true)
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
 // handleRoutes takes the pull in flight. Its configs go into the cache
 // whatever the search shows now, as long as the listener's refs did not change
 // since the pull started. A search open on that listener then shows the
@@ -343,48 +352,11 @@ func (m *Model) handleRoutes(msg routesMsg) {
 	}
 	m.pull = routePull{}
 
-	var missing *snapshot.MissingRouteConfigError
-	failed := msg.err != nil && !errors.As(msg.err, &missing)
-	// While the listener dump fails the listeners are unknown, not changed
-	// (as in syncRoutes): the pull's own refs stand.
-	unchanged := true
-	if m.snap.ListenersErr == "" {
-		l, live := m.liveListener(msg.listener)
-		unchanged = live && refsEqual(p.refs, l.RouteRefs())
+	failed, unchanged := m.storePull(msg, p)
+	if !m.settleSearch(msg, failed, unchanged) {
+		return
 	}
-	if !failed && unchanged {
-		var names []string
-		if missing != nil {
-			names = missing.Names
-		}
-		m.routes.Put(msg.listener, p.refs, msg.cfgs, names, msg.at)
-		m.routeRefs[msg.listener] = p.refs
-	}
-
 	s := &m.search
-	switch {
-	case !s.open:
-		return
-	case s.listener.Name != msg.listener:
-		if s.status == searchPulling {
-			s.setStatus(searchReady, false) // its Enter was refused while this pull ran
-		}
-		return
-	case s.gone:
-		return // the gone notice stays
-	case failed:
-		s.setStatus(msg.err.Error(), true) // keep the previous results
-		return
-	case !unchanged:
-		s.query = ""
-		s.list.SetItems(nil) // never hits from configs of the old refs
-		s.sync()
-		s.setStatus(searchChanged, true)
-		return
-	case s.want == "":
-		s.setStatus("", false) // reopened since the pull started; nothing entered yet
-		return
-	}
 	e, _ := m.routes.Get(msg.listener, p.refs)
 	s.query = s.want
 	s.showEntry(s.want, e)
@@ -438,4 +410,54 @@ func refsEqual(a, b []snapshot.RouteRef) bool {
 	return slices.EqualFunc(a, b, func(x, y snapshot.RouteRef) bool {
 		return x.Name == y.Name && bytes.Equal(x.Inline, y.Inline)
 	})
+}
+
+// storePull caches the configs of the landed pull when it succeeded and the
+// listener's refs did not change. It reports whether the pull failed and
+// whether the refs are unchanged.
+func (m *Model) storePull(msg routesMsg, p routePull) (failed, unchanged bool) {
+	var missing *snapshot.MissingRouteConfigError
+	failed = msg.err != nil && !errors.As(msg.err, &missing)
+	// While the listener dump fails the listeners are unknown, not changed
+	// (as in syncRoutes): the pull's own refs stand.
+	unchanged = true
+	if m.snap.ListenersErr == "" {
+		l, live := m.liveListener(msg.listener)
+		unchanged = live && refsEqual(p.refs, l.RouteRefs())
+	}
+	if !failed && unchanged {
+		var names []string
+		if missing != nil {
+			names = missing.Names
+		}
+		m.routes.Put(msg.listener, p.refs, msg.cfgs, names, msg.at)
+		m.routeRefs[msg.listener] = p.refs
+	}
+	return failed, unchanged
+}
+
+// settleSearch updates the open search after a pull landed. It reports whether
+// the search should show the cached entry for its latest query.
+func (m *Model) settleSearch(msg routesMsg, failed, unchanged bool) bool {
+	s := &m.search
+	switch {
+	case !s.open:
+	case s.listener.Name != msg.listener:
+		if s.status == searchPulling {
+			s.setStatus(searchReady, false) // its Enter was refused while this pull ran
+		}
+	case s.gone: // the gone notice stays
+	case failed:
+		s.setStatus(msg.err.Error(), true) // keep the previous results
+	case !unchanged:
+		s.query = ""
+		s.list.SetItems(nil) // never hits from configs of the old refs
+		s.sync()
+		s.setStatus(searchChanged, true)
+	case s.want == "":
+		s.setStatus("", false) // reopened since the pull started; nothing entered yet
+	default:
+		return true
+	}
+	return false
 }

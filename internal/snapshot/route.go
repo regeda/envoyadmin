@@ -56,9 +56,10 @@ func (l Listener) HasScopedRoutes() bool {
 }
 
 type RouteConfig struct {
-	Name, VersionInfo string
-	Inline            bool
-	VirtualHosts      []VirtualHost
+	Name         string
+	VersionInfo  string
+	VirtualHosts []VirtualHost
+	Inline       bool
 }
 
 type VirtualHost struct {
@@ -69,14 +70,11 @@ type VirtualHost struct {
 
 // Route is one route entry; Index is its position in the virtual host.
 type Route struct {
+	match  *routeMatch
 	Name   string
-	Index  int
 	JSON   []byte
 	Config ConfigInfo
-
-	// match is the decoded route match, shared by copies of the Route so
-	// compiled regexes are cached once per route.
-	match *routeMatch
+	Index  int
 }
 
 // ParseRouteConfig reads a route_config object, best effort: malformed parts
@@ -90,7 +88,7 @@ func ParseRouteConfig(name, version string, inline bool, raw json.RawMessage) Ro
 	var c struct {
 		VirtualHosts []json.RawMessage `json:"virtual_hosts"`
 	}
-	_ = json.Unmarshal(raw, &c)
+	looseUnmarshal(raw, &c)
 	for _, v := range c.VirtualHosts {
 		var vh struct {
 			Name    string            `json:"name"`
@@ -106,7 +104,7 @@ func ParseRouteConfig(name, version string, inline bool, raw json.RawMessage) Ro
 				Name  string          `json:"name"`
 				Match json.RawMessage `json:"match"`
 			}
-			_ = json.Unmarshal(r, &n)
+			looseUnmarshal(r, &n)
 			out.Routes = append(out.Routes, Route{
 				Name: n.Name, Index: i, JSON: r, Config: NewConfigInfo(r),
 				match: decodeRouteMatch(n.Match),
@@ -154,30 +152,7 @@ func decodeRouteMatch(raw json.RawMessage) *routeMatch {
 			m.unsupported = true
 		}
 	}
-	specifiers := 0
-	for _, k := range []string{"prefix", "path", "path_separated_prefix", "safe_regex"} {
-		v, ok := obj[k]
-		if !ok {
-			continue
-		}
-		specifiers++
-		switch k {
-		case "safe_regex":
-			if re, ok := decodeRegex(v); ok {
-				m.path, m.pathRe = pathRegex, &strMatcher{kind: strRegex, value: re}
-			}
-		default:
-			if json.Unmarshal(v, &m.pathValue) == nil {
-				m.path = map[string]pathKind{"prefix": pathPrefix, "path": pathExact, "path_separated_prefix": pathSeparated}[k]
-			}
-		}
-	}
-	if v, ok := obj["case_sensitive"]; ok && json.Unmarshal(v, &m.caseSensitive) != nil {
-		m.path = pathNone
-	}
-	if specifiers != 1 {
-		m.path = pathNone
-	}
+	m.decodePath(obj)
 	if m.path == pathNone {
 		m.unsupported = true // the path cannot rule the route out
 	}
@@ -188,21 +163,61 @@ func decodeRouteMatch(raw json.RawMessage) *routeMatch {
 	if json.Unmarshal(orNull(obj["query_parameters"]), &query) != nil {
 		m.unsupported = true
 	}
-	for _, h := range headers {
-		if hm, ok := decodeHeaderMatcher(h); ok {
-			m.headers = append(m.headers, hm)
-		} else {
-			m.unsupported = true
-		}
-	}
-	for _, q := range query {
-		if qm, ok := decodeQueryMatcher(q); ok {
-			m.query = append(m.query, qm)
-		} else {
-			m.unsupported = true
-		}
+	var headersOK, queryOK bool
+	m.headers, headersOK = decodeAll(headers, decodeHeaderMatcher)
+	m.query, queryOK = decodeAll(query, decodeQueryMatcher)
+	if !headersOK || !queryOK {
+		m.unsupported = true
 	}
 	return m
+}
+
+// decodeAll decodes every raw matcher with dec, keeping the decodable ones;
+// ok is false when any of them was not decodable.
+func decodeAll[T any](raws []json.RawMessage, dec func(json.RawMessage) (T, bool)) (out []T, ok bool) {
+	ok = true
+	for _, r := range raws {
+		if v, valid := dec(r); valid {
+			out = append(out, v)
+		} else {
+			ok = false
+		}
+	}
+	return out, ok
+}
+
+var pathKinds = map[string]pathKind{"prefix": pathPrefix, "path": pathExact, "path_separated_prefix": pathSeparated}
+
+// decodePath decodes the path specifier and case_sensitive of a route match;
+// anything but exactly one valid specifier leaves path as pathNone.
+func (m *routeMatch) decodePath(obj map[string]json.RawMessage) {
+	specifiers := 0
+	for _, k := range []string{"prefix", "path", "path_separated_prefix", "safe_regex"} {
+		v, ok := obj[k]
+		if !ok {
+			continue
+		}
+		specifiers++
+		m.decodePathSpecifier(k, v)
+	}
+	if v, ok := obj["case_sensitive"]; ok && json.Unmarshal(v, &m.caseSensitive) != nil {
+		m.path = pathNone
+	}
+	if specifiers != 1 {
+		m.path = pathNone
+	}
+}
+
+func (m *routeMatch) decodePathSpecifier(k string, v json.RawMessage) {
+	if k == "safe_regex" {
+		if re, ok := decodeRegex(v); ok {
+			m.path, m.pathRe = pathRegex, &strMatcher{kind: strRegex, value: re}
+		}
+		return
+	}
+	if json.Unmarshal(v, &m.pathValue) == nil {
+		m.path = pathKinds[k]
+	}
 }
 
 func orNull(v json.RawMessage) json.RawMessage {
@@ -212,15 +227,58 @@ func orNull(v json.RawMessage) json.RawMessage {
 	return v
 }
 
+var legacyStringKinds = map[string]strKind{"exact_match": strExact, "prefix_match": strPrefix,
+	"suffix_match": strSuffix, "contains_match": strContains}
+
 func decodeHeaderMatcher(raw json.RawMessage) (headerMatcher, bool) {
 	var obj map[string]json.RawMessage
 	if json.Unmarshal(raw, &obj) != nil {
 		return headerMatcher{}, false
 	}
 	var h headerMatcher
+	if !h.decodeFields(obj) {
+		return h, false
+	}
+	h.name = strings.ToLower(h.name)
+	// Envoy keeps Host as :authority, so what a "host" matcher sees is
+	// ambiguous; other pseudo-headers (e.g. :scheme) are not in a Request.
+	if h.name == "" || h.name == "host" || (strings.HasPrefix(h.name, ":") && !pseudoHeaders[h.name]) {
+		return h, false
+	}
+	return h, h.decodeSpecifiers(obj)
+}
+
+// decodeSpecifiers decodes the one match specifier of a header matcher; no
+// specifier at all is a presence match, more than one is unsupported.
+func (h *headerMatcher) decodeSpecifiers(obj map[string]json.RawMessage) bool {
+	specifiers := 0
+	for _, k := range []string{"string_match", "exact_match", "prefix_match", "suffix_match",
+		"contains_match", "safe_regex_match", "present_match", "range_match"} {
+		v, ok := obj[k]
+		if !ok {
+			continue
+		}
+		specifiers++
+		if !h.decodeSpecifier(k, v) {
+			return false
+		}
+	}
+	switch specifiers {
+	case 0: // a name alone matches on presence, as in Envoy
+		h.kind, h.present = headerPresent, true
+	case 1:
+	default:
+		return false
+	}
+	return true
+}
+
+// decodeFields reads name, invert_match and treat_missing_header_as_empty and
+// reports false on an unknown key or a malformed value.
+func (h *headerMatcher) decodeFields(obj map[string]json.RawMessage) bool {
 	for k, v := range obj {
 		if !headerMatcherKeys[k] {
-			return h, false
+			return false
 		}
 		var err error
 		switch k {
@@ -232,63 +290,41 @@ func decodeHeaderMatcher(raw json.RawMessage) (headerMatcher, bool) {
 			err = json.Unmarshal(v, &h.missingAsEmpty)
 		}
 		if err != nil {
-			return h, false
+			return false
 		}
 	}
-	h.name = strings.ToLower(h.name)
-	// Envoy keeps Host as :authority, so what a "host" matcher sees is
-	// ambiguous; other pseudo-headers (e.g. :scheme) are not in a Request.
-	if h.name == "" || h.name == "host" || (strings.HasPrefix(h.name, ":") && !pseudoHeaders[h.name]) {
-		return h, false
-	}
+	return true
+}
 
-	specifiers := 0
-	for _, k := range []string{"string_match", "exact_match", "prefix_match", "suffix_match",
-		"contains_match", "safe_regex_match", "present_match", "range_match"} {
-		v, ok := obj[k]
-		if !ok {
-			continue
-		}
-		specifiers++
-		var ok2 bool
-		switch k {
-		case "string_match":
-			h.kind = headerString
-			h.str, ok2 = decodeStringMatch(v)
-		case "safe_regex_match":
-			h.kind = headerString
-			var re string
-			re, ok2 = decodeRegex(v)
-			h.str = strMatcher{kind: strRegex, value: re}
-		case "present_match":
-			h.kind = headerPresent
-			ok2 = json.Unmarshal(v, &h.present) == nil
-		case "range_match":
-			h.kind = headerRange
-			var r struct{ Start, End json.RawMessage }
-			ok2 = json.Unmarshal(v, &r) == nil
-			var okS, okE bool
-			h.start, okS = decodeInt64(r.Start)
-			h.end, okE = decodeInt64(r.End)
-			ok2 = ok2 && okS && okE
-		default: // legacy exact/prefix/suffix/contains
-			h.kind = headerString
-			h.str.kind = map[string]strKind{"exact_match": strExact, "prefix_match": strPrefix,
-				"suffix_match": strSuffix, "contains_match": strContains}[k]
-			ok2 = json.Unmarshal(v, &h.str.value) == nil
-		}
-		if !ok2 {
-			return h, false
-		}
+// decodeSpecifier decodes one match specifier (k) of a header matcher.
+func (h *headerMatcher) decodeSpecifier(k string, v json.RawMessage) bool {
+	switch k {
+	case "string_match":
+		h.kind = headerString
+		var ok bool
+		h.str, ok = decodeStringMatch(v)
+		return ok
+	case "safe_regex_match":
+		h.kind = headerString
+		re, ok := decodeRegex(v)
+		h.str = strMatcher{kind: strRegex, value: re}
+		return ok
+	case "present_match":
+		h.kind = headerPresent
+		return json.Unmarshal(v, &h.present) == nil
+	case "range_match":
+		h.kind = headerRange
+		var r struct{ Start, End json.RawMessage }
+		ok := json.Unmarshal(v, &r) == nil
+		var okS, okE bool
+		h.start, okS = decodeInt64(r.Start)
+		h.end, okE = decodeInt64(r.End)
+		return ok && okS && okE
+	default: // legacy exact/prefix/suffix/contains
+		h.kind = headerString
+		h.str.kind = legacyStringKinds[k]
+		return json.Unmarshal(v, &h.str.value) == nil
 	}
-	switch specifiers {
-	case 0: // a name alone matches on presence, as in Envoy
-		h.kind, h.present = headerPresent, true
-	case 1:
-	default:
-		return h, false
-	}
-	return h, true
 }
 
 func decodeQueryMatcher(raw json.RawMessage) (queryMatcher, bool) {
@@ -305,28 +341,30 @@ func decodeQueryMatcher(raw json.RawMessage) (queryMatcher, bool) {
 	if json.Unmarshal(obj["name"], &q.name) != nil || q.name == "" {
 		return q, false
 	}
+	return q, q.decodeMatch(obj)
+}
+
+// decodeMatch decodes string_match or present_match (at most one of them).
+func (q *queryMatcher) decodeMatch(obj map[string]json.RawMessage) bool {
 	_, hasStr := obj["string_match"]
 	_, hasPresent := obj["present_match"]
 	switch {
 	case hasStr && hasPresent:
-		return q, false
+		return false
 	case hasStr:
 		s, ok := decodeStringMatch(obj["string_match"])
 		if !ok {
-			return q, false
+			return false
 		}
 		q.str = &s
 	case hasPresent:
 		var p bool
-		if json.Unmarshal(obj["present_match"], &p) != nil {
-			return q, false
-		}
 		// present_match false is not meaningful; treat it as unsupported.
-		if !p {
-			return q, false
+		if json.Unmarshal(obj["present_match"], &p) != nil || !p {
+			return false
 		}
 	}
-	return q, true
+	return true
 }
 
 // decodeStringMatch decodes an envoy.type.matcher.v3.StringMatcher.
@@ -350,11 +388,7 @@ func decodeStringMatch(raw json.RawMessage) (strMatcher, bool) {
 		}
 		n++
 		s.kind = kind
-		if kind == strRegex {
-			if s.value, ok = decodeRegex(v); !ok {
-				return s, false
-			}
-		} else if json.Unmarshal(v, &s.value) != nil {
+		if !s.decodeValue(v) {
 			return s, false
 		}
 	}
@@ -368,6 +402,16 @@ func decodeStringMatch(raw json.RawMessage) (strMatcher, bool) {
 		s.lower = strings.ToLower(s.value)
 	}
 	return s, true
+}
+
+// decodeValue reads the value of a string matcher of the already set kind.
+func (s *strMatcher) decodeValue(v json.RawMessage) bool {
+	if s.kind == strRegex {
+		var ok bool
+		s.value, ok = decodeRegex(v)
+		return ok
+	}
+	return json.Unmarshal(v, &s.value) == nil
 }
 
 // decodeRegex reads a RegexMatcher's regex; engine fields are ignored.

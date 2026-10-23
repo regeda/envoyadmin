@@ -26,9 +26,9 @@ func TestRealCaptureClusterConfigs(t *testing.T) {
 	c := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Query().Get("resource") {
 		case "dynamic_active_clusters":
-			_, _ = w.Write(capture(t, "real-config-dynamic.json"))
+			writeBody(t, w, string(capture(t, "real-config-dynamic.json")))
 		case "static_clusters":
-			_, _ = w.Write(capture(t, "real-config-static.json"))
+			writeBody(t, w, string(capture(t, "real-config-static.json")))
 		default:
 			http.Error(w, "bad resource", 400)
 		}
@@ -61,9 +61,9 @@ func TestRealCaptureClustersAndServerInfo(t *testing.T) {
 	c := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/clusters":
-			_, _ = w.Write(capture(t, "real-clusters.json"))
+			writeBody(t, w, string(capture(t, "real-clusters.json")))
 		case "/server_info":
-			_, _ = w.Write(capture(t, "real-server-info.json"))
+			writeBody(t, w, string(capture(t, "real-server-info.json")))
 		default:
 			http.NotFound(w, r)
 		}

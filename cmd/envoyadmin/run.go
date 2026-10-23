@@ -7,7 +7,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-
 	"github.com/regeda/envoyadmin/internal/admin"
 	"github.com/regeda/envoyadmin/internal/config"
 	"github.com/regeda/envoyadmin/internal/demo"

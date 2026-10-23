@@ -11,16 +11,16 @@ import (
 
 // Fault injects a failure into every request until cleared with Inject(Fault{}).
 type Fault struct {
-	Status  int           // respond with this HTTP status
-	Delay   time.Duration // wait before responding
-	Garbage bool          // respond 200 with invalid JSON
-	Match   string        // fault only requests whose RequestURI contains this; empty means all
+	Match   string
+	Status  int
+	Delay   time.Duration
+	Garbage bool
 }
 
 type Server struct {
-	mu    sync.Mutex
 	sc    Scenario
 	fault Fault
+	mu    sync.Mutex
 }
 
 func NewServer(sc Scenario) *Server { return &Server{sc: sc} }
@@ -36,8 +36,17 @@ func (s *Server) Update(fn func(*Scenario)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	cp := s.sc
-	cp.Clusters = make([]Cluster, len(s.sc.Clusters))
-	for i, c := range s.sc.Clusters {
+	cp.Clusters = cloneClusters(s.sc.Clusters)
+	cp.Listeners = cloneListeners(s.sc.Listeners)
+	cp.RouteConfigs = append([]RouteConfig(nil), s.sc.RouteConfigs...)
+	cp.Secrets = cloneSecrets(s.sc.Secrets)
+	fn(&cp)
+	s.sc = cp
+}
+
+func cloneClusters(in []Cluster) []Cluster {
+	out := make([]Cluster, len(in))
+	for i, c := range in {
 		c.Hosts = append([]Host(nil), c.Hosts...)
 		for j, h := range c.Hosts {
 			if h.Health != nil {
@@ -49,12 +58,16 @@ func (s *Server) Update(fn func(*Scenario)) {
 			}
 		}
 		c.Secrets = append([]string(nil), c.Secrets...)
-		cp.Clusters[i] = c
+		out[i] = c
 	}
-	cp.Listeners = make([]Listener, len(s.sc.Listeners))
-	for i, l := range s.sc.Listeners {
-		l.Chains = make([]Chain, len(s.sc.Listeners[i].Chains))
-		for j, c := range s.sc.Listeners[i].Chains {
+	return out
+}
+
+func cloneListeners(in []Listener) []Listener {
+	out := make([]Listener, len(in))
+	for i, l := range in {
+		l.Chains = make([]Chain, len(in[i].Chains))
+		for j, c := range in[i].Chains {
 			l.Chains[j] = c.clone()
 		}
 		if l.Default != nil {
@@ -62,20 +75,22 @@ func (s *Server) Update(fn func(*Scenario)) {
 			l.Default = &d
 		}
 		l.Secrets = append([]string(nil), l.Secrets...)
-		cp.Listeners[i] = l
+		out[i] = l
 	}
-	cp.RouteConfigs = append([]RouteConfig(nil), s.sc.RouteConfigs...)
-	cp.Secrets = make([]Secret, len(s.sc.Secrets))
-	for i, sec := range s.sc.Secrets {
+	return out
+}
+
+func cloneSecrets(in []Secret) []Secret {
+	out := make([]Secret, len(in))
+	for i, sec := range in {
 		if sec.Cert != nil {
 			c := *sec.Cert
 			c.SANs = append([]string(nil), c.SANs...)
 			sec.Cert = &c
 		}
-		cp.Secrets[i] = sec
+		out[i] = sec
 	}
-	fn(&cp)
-	s.sc = cp
+	return out
 }
 
 // clone deep-copies a chain, including its match map and string slices.
@@ -108,20 +123,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if f.Match != "" && !strings.Contains(r.URL.RequestURI(), f.Match) {
 		f = Fault{}
 	}
-
-	if f.Delay > 0 {
-		select {
-		case <-time.After(f.Delay):
-		case <-r.Context().Done():
-			return
-		}
-	}
-	if f.Status != 0 {
-		http.Error(w, "injected fault", f.Status)
-		return
-	}
-	if f.Garbage {
-		_, _ = w.Write([]byte("{not json"))
+	if !applyFault(w, r, f) {
 		return
 	}
 
@@ -132,26 +134,50 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "format=json required", http.StatusBadRequest)
 			return
 		}
-		_, _ = w.Write(sc.ClustersJSON())
+		writeBody(w, sc.ClustersJSON())
 	case "/config_dump":
-		q := r.URL.Query()
-		var b []byte
-		var ok bool
-		if re := q.Get("name_regex"); re != "" {
-			b, ok = sc.RouteConfigsJSON(q.Get("resource"), re)
-		} else {
-			b, ok = sc.ConfigDumpJSON(q.Get("resource"))
-		}
-		if !ok {
-			http.Error(w, "unsupported resource", http.StatusBadRequest)
-			return
-		}
-		_, _ = w.Write(b)
+		serveConfigDump(w, r, sc)
 	case "/server_info":
-		_, _ = w.Write(sc.ServerInfoJSON())
+		writeBody(w, sc.ServerInfoJSON())
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+// applyFault reports whether the request should proceed past the injected fault.
+func applyFault(w http.ResponseWriter, r *http.Request, f Fault) bool {
+	if f.Delay > 0 {
+		select {
+		case <-time.After(f.Delay):
+		case <-r.Context().Done():
+			return false
+		}
+	}
+	if f.Status != 0 {
+		http.Error(w, "injected fault", f.Status)
+		return false
+	}
+	if f.Garbage {
+		writeBody(w, []byte("{not json"))
+		return false
+	}
+	return true
+}
+
+func serveConfigDump(w http.ResponseWriter, r *http.Request, sc Scenario) {
+	q := r.URL.Query()
+	var b []byte
+	var ok bool
+	if re := q.Get("name_regex"); re != "" {
+		b, ok = sc.RouteConfigsJSON(q.Get("resource"), re)
+	} else {
+		b, ok = sc.ConfigDumpJSON(q.Get("resource"))
+	}
+	if !ok {
+		http.Error(w, "unsupported resource", http.StatusBadRequest)
+		return
+	}
+	writeBody(w, b)
 }
 
 // Start serves on a random loopback port and returns its base URL and a stop func.
@@ -161,8 +187,8 @@ func (s *Server) Start() (string, func(), error) {
 		return "", nil, err
 	}
 	srv := &http.Server{Handler: s}
-	go func() { _ = srv.Serve(ln) }()
-	return "http://" + ln.Addr().String(), func() { _ = srv.Close() }, nil
+	go srv.Serve(ln)                                                   //nolint:errcheck // only ever returns http.ErrServerClosed after stop
+	return "http://" + ln.Addr().String(), func() { srv.Close() }, nil //nolint:errcheck // best-effort shutdown of a demo server
 }
 
 // Jitter flips the first host of the "search" cluster between healthy and
@@ -177,18 +203,26 @@ func (s *Server) Jitter(ctx context.Context, every time.Duration) {
 			return
 		case <-t.C:
 			failing = !failing
-			s.Update(func(sc *Scenario) {
-				for i := range sc.Clusters {
-					if sc.Clusters[i].Name != "search" || len(sc.Clusters[i].Hosts) == 0 {
-						continue
-					}
-					if failing {
-						sc.Clusters[i].Hosts[0].Health = map[string]any{"failed_active_health_check": true, "eds_health_status": "UNHEALTHY"}
-					} else {
-						sc.Clusters[i].Hosts[0].Health = nil
-					}
-				}
-			})
+			s.Update(func(sc *Scenario) { setSearchHealth(sc, failing) })
 		}
 	}
+}
+
+// setSearchHealth marks the first host of the "search" cluster failing or healthy.
+func setSearchHealth(sc *Scenario, failing bool) {
+	for i := range sc.Clusters {
+		if sc.Clusters[i].Name != "search" || len(sc.Clusters[i].Hosts) == 0 {
+			continue
+		}
+		if failing {
+			sc.Clusters[i].Hosts[0].Health = map[string]any{"failed_active_health_check": true, "eds_health_status": "UNHEALTHY"}
+		} else {
+			sc.Clusters[i].Hosts[0].Health = nil
+		}
+	}
+}
+
+// writeBody sends b; a failed write means the client left, so there is nobody to tell.
+func writeBody(w http.ResponseWriter, b []byte) {
+	w.Write(b) //nolint:errcheck // client disconnected
 }

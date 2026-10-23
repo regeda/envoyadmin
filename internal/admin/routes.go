@@ -15,11 +15,11 @@ const (
 
 // RouteConfig is one route configuration as Envoy emitted it.
 type RouteConfig struct {
-	Name, VersionInfo string
-	LastUpdated       time.Time
-	Static            bool
-	// JSON is the route_config object.
-	JSON []byte
+	LastUpdated time.Time
+	Name        string
+	VersionInfo string
+	JSON        []byte
+	Static      bool
 }
 
 // routeNameRegex builds Envoy's name_regex for a set of exact names; Envoy
@@ -62,46 +62,40 @@ func routeConfig(r rawRoute, static bool) (RouteConfig, bool) {
 // StaticRouteConfig; a plain dump has one wrapped RoutesConfigDump, from which
 // the list matching static is taken. Malformed or unrecognised elements are skipped.
 func decodeRouteConfigs(body []byte, static bool) ([]RouteConfig, error) {
-	var dump struct {
-		Configs []json.RawMessage `json:"configs"`
-	}
-	if err := json.Unmarshal(body, &dump); err != nil {
-		return nil, err
+	var out []RouteConfig
+	err := walkConfigs(body, func(raw json.RawMessage, typ string) {
+		out = append(out, routeElements(raw, typ, static)...)
+	})
+	return out, err
+}
+
+// routeElements decodes one configs[] element into zero or more route configs.
+func routeElements(raw json.RawMessage, typ string, static bool) []RouteConfig {
+	var list []rawRoute
+	isStatic := static
+	switch {
+	case strings.HasSuffix(typ, typeDynamicRoute), strings.HasSuffix(typ, typeStaticRoute):
+		var r rawRoute
+		if json.Unmarshal(raw, &r) != nil {
+			return nil
+		}
+		list = []rawRoute{r}
+		isStatic = strings.HasSuffix(typ, typeStaticRoute)
+	case strings.HasSuffix(typ, typeRoutesDump):
+		var rd routesDump
+		if json.Unmarshal(raw, &rd) != nil {
+			return nil
+		}
+		list = rd.Dynamic
+		if static {
+			list = rd.Static
+		}
 	}
 	var out []RouteConfig
-	add := func(r rawRoute, static bool) {
-		if rc, ok := routeConfig(r, static); ok {
+	for _, r := range list {
+		if rc, ok := routeConfig(r, isStatic); ok {
 			out = append(out, rc)
 		}
 	}
-	for _, raw := range dump.Configs {
-		var obj map[string]json.RawMessage
-		if json.Unmarshal(raw, &obj) != nil {
-			continue
-		}
-		var typ string
-		if json.Unmarshal(obj["@type"], &typ) != nil {
-			continue
-		}
-		switch {
-		case strings.HasSuffix(typ, typeDynamicRoute), strings.HasSuffix(typ, typeStaticRoute):
-			var r rawRoute
-			if json.Unmarshal(raw, &r) == nil {
-				add(r, strings.HasSuffix(typ, typeStaticRoute))
-			}
-		case strings.HasSuffix(typ, typeRoutesDump):
-			var rd routesDump
-			if json.Unmarshal(raw, &rd) != nil {
-				continue
-			}
-			list := rd.Dynamic
-			if static {
-				list = rd.Static
-			}
-			for _, r := range list {
-				add(r, static)
-			}
-		}
-	}
-	return out, nil
+	return out
 }

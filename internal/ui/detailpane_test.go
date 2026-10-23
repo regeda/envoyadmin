@@ -10,7 +10,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
-
 	"github.com/regeda/envoyadmin/internal/snapshot"
 )
 

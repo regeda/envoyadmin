@@ -12,23 +12,20 @@ import (
 // Render, and cached for every copy of this value; Fetch never converts, so a
 // poll over thousands of listeners costs nothing until one is viewed.
 type ConfigInfo struct {
-	YAML        string // pre-rendered text; wins over JSON when set
-	JSON        []byte // raw JSON as Envoy emitted it
-	VersionInfo string
 	LastUpdated time.Time
+	lazy        *lazyYAML
+	YAML        string
+	VersionInfo string
+	Err         string
+	JSON        []byte
 	Static      bool
-	// Err is set at fetch time only (config missing or its dump failed). A
-	// problem converting the JSON surfaces later, through Render.
-	Err string
-
-	lazy *lazyYAML
 }
 
 type lazyYAML struct {
+	err  error
+	text string
 	once sync.Once
 	done atomic.Bool
-	text string
-	err  error
 }
 
 // NewConfigInfo wraps raw JSON for lazy, cached YAML conversion.

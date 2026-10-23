@@ -25,12 +25,12 @@ func TestVersion(t *testing.T) {
 
 func TestInvalidFlagsFailBeforeRun(t *testing.T) {
 	tests := []struct {
-		args    []string
 		wantErr string
+		args    []string
 	}{
-		{[]string{"--refresh", "100ms"}, "--refresh"},
-		{[]string{"--timeout", "0s"}, "--timeout"},
-		{[]string{"--admin", "nope"}, "--admin"},
+		{args: []string{"--refresh", "100ms"}, wantErr: "--refresh"},
+		{args: []string{"--timeout", "0s"}, wantErr: "--timeout"},
+		{args: []string{"--admin", "nope"}, wantErr: "--admin"},
 	}
 	for _, tt := range tests {
 		_, err := execRoot(tt.args...)

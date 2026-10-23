@@ -11,7 +11,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/exp/teatest"
 	"github.com/muesli/termenv"
-
 	"github.com/regeda/envoyadmin/internal/admin"
 	"github.com/regeda/envoyadmin/internal/demo"
 	"github.com/regeda/envoyadmin/internal/snapshot"
@@ -202,7 +201,7 @@ func TestSecretOverviewActiveCertListsUsers(t *testing.T) {
 // selected route's config.
 func TestGoldenRouteSearch(t *testing.T) {
 	c := &clock{now: fixedNow}
-	s := listenerSnap(t, rdsListener("a-edge", "edge-routes"), tcpListener("z-tcp"))
+	s := listenerSnap(t, rdsListener("a-edge", "edge-routes"), tcpListener())
 	m := searchModel(t, s, &fakeRoutes{cfgs: edgeConfigs()}, c)
 	m = typeText(send(m, key(":")), "curl http://h/logon/x")
 	m, cmd := sendCmd(m, key("enter"))

@@ -14,7 +14,10 @@ import (
 func TestDemoRoutesShowEveryStatus(t *testing.T) {
 	srv := httptest.NewServer(demo.NewServer(demo.Degraded()))
 	defer srv.Close()
-	c, _ := admin.NewHTTP(srv.URL, time.Second)
+	c, err := admin.NewHTTP(srv.URL, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
 	snap, err := Fetch(context.Background(), c)
 	if err != nil {
 		t.Fatal(err)

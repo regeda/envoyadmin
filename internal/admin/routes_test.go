@@ -89,7 +89,7 @@ func TestRouteConfigsRequests(t *testing.T) {
 			http.Error(w, "bad path", http.StatusNotFound)
 			return
 		}
-		_, _ = w.Write([]byte(`{"configs":[]}`))
+		writeBody(t, w, `{"configs":[]}`)
 	}), time.Second)
 
 	if got, err := c.RouteConfigs(context.Background(), nil); got != nil || err != nil {

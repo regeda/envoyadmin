@@ -40,9 +40,9 @@ func serveListeners(t *testing.T, dyn, stat string) *HTTP {
 	return newClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Query().Get("resource") {
 		case "dynamic_listeners":
-			_, _ = w.Write([]byte(dyn))
+			writeBody(t, w, dyn)
 		case "static_listeners":
-			_, _ = w.Write([]byte(stat))
+			writeBody(t, w, stat)
 		default:
 			http.Error(w, "bad resource", http.StatusBadRequest)
 		}
@@ -226,7 +226,7 @@ func TestListenerConfigsErrorNamesTheFailedDump(t *testing.T) {
 				http.Error(w, "x", http.StatusServiceUnavailable)
 				return
 			}
-			_, _ = w.Write([]byte(`{}`))
+			writeBody(t, w, `{}`)
 		}), time.Second)
 		_, err := c.ListenerConfigs(context.Background())
 		if err == nil || !strings.HasPrefix(err.Error(), res+": ") || !strings.Contains(err.Error(), "GET /config_dump:") || !strings.Contains(err.Error(), "503") {

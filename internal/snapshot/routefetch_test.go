@@ -12,9 +12,9 @@ import (
 
 type routeFake struct {
 	admin.Client
+	err   error
 	calls [][]string
 	resp  []admin.RouteConfig
-	err   error
 }
 
 func (f *routeFake) RouteConfigs(_ context.Context, names []string) ([]admin.RouteConfig, error) {
@@ -22,7 +22,8 @@ func (f *routeFake) RouteConfigs(_ context.Context, names []string) ([]admin.Rou
 	return f.resp, f.err
 }
 
-func rdsConfig(name string) admin.RouteConfig {
+func rdsConfig() admin.RouteConfig {
+	const name = "a"
 	return admin.RouteConfig{
 		Name:        name,
 		VersionInfo: "v1",
@@ -43,7 +44,7 @@ func TestFetchRoutes(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("one rds ref", func(t *testing.T) {
-		f := &routeFake{resp: []admin.RouteConfig{rdsConfig("a")}}
+		f := &routeFake{resp: []admin.RouteConfig{rdsConfig()}}
 		got, err := FetchRoutes(ctx, f, listenerWith(RouteRef{Name: "a"}))
 		if err != nil {
 			t.Fatal(err)
@@ -72,7 +73,7 @@ func TestFetchRoutes(t *testing.T) {
 	})
 
 	t.Run("mixed inline and rds", func(t *testing.T) {
-		f := &routeFake{resp: []admin.RouteConfig{rdsConfig("a")}}
+		f := &routeFake{resp: []admin.RouteConfig{rdsConfig()}}
 		raw := json.RawMessage(`{"name":"in","virtual_hosts":[]}`)
 		got, err := FetchRoutes(ctx, f, listenerWith(RouteRef{Inline: raw}, RouteRef{Name: "a"}))
 		if err != nil {
@@ -87,7 +88,7 @@ func TestFetchRoutes(t *testing.T) {
 	})
 
 	t.Run("missing name", func(t *testing.T) {
-		f := &routeFake{resp: []admin.RouteConfig{rdsConfig("a")}}
+		f := &routeFake{resp: []admin.RouteConfig{rdsConfig()}}
 		got, err := FetchRoutes(ctx, f, listenerWith(RouteRef{Name: "a"}, RouteRef{Name: "x"}))
 		var miss *MissingRouteConfigError
 		if !errors.As(err, &miss) || !reflect.DeepEqual(miss.Names, []string{"x"}) {
@@ -122,7 +123,7 @@ func TestFetchRoutes(t *testing.T) {
 
 	t.Run("admin error", func(t *testing.T) {
 		boom := errors.New("boom")
-		f := &routeFake{err: boom, resp: []admin.RouteConfig{rdsConfig("a")}}
+		f := &routeFake{err: boom, resp: []admin.RouteConfig{rdsConfig()}}
 		raw := json.RawMessage(`{"virtual_hosts":[]}`)
 		got, err := FetchRoutes(ctx, f, listenerWith(RouteRef{Inline: raw}, RouteRef{Name: "a"}))
 		if !errors.Is(err, boom) || got != nil {

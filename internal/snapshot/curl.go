@@ -18,10 +18,13 @@ import (
 // host is a wildcard, so Host and Port are empty and route matching neither
 // picks a virtual host by domain nor claims a winner.
 type Request struct {
-	Method, Host, Port, Path string
-	AnyHost                  bool
-	Query                    url.Values
-	Headers                  map[string][]string
+	Query   url.Values
+	Headers map[string][]string
+	Method  string
+	Host    string
+	Port    string
+	Path    string
+	AnyHost bool
 }
 
 // schemeRE detects a URL that starts with a scheme.
@@ -43,86 +46,110 @@ func ParseCurl(line string) (Request, error) {
 	if len(args) == 0 {
 		return Request{}, errors.New("empty curl line")
 	}
+	rawURL, method, headers, err := parseCurlArgs(args)
+	if err != nil {
+		return Request{}, err
+	}
+	if rawURL == "" {
+		return Request{}, errors.New("no URL in curl line")
+	}
+	return buildRequest(rawURL, method, headers)
+}
 
-	rawURL, method := "", "GET"
-	headers := map[string][]string{}
-
+// parseCurlArgs walks the words: flags give the method and headers, the one
+// non-flag word is the URL.
+func parseCurlArgs(args []string) (rawURL, method string, headers map[string][]string, err error) {
+	method = "GET"
+	headers = map[string][]string{}
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if !strings.HasPrefix(a, "-") {
-			// A blank word or a lone backslash is a pasted line continuation.
-			if t := strings.TrimSpace(a); t == "" || t == "\\" {
-				continue
+			if rawURL, err = setCurlURL(rawURL, a); err != nil {
+				return "", "", nil, err
 			}
-			if rawURL != "" {
-				return Request{}, errors.New("more than one URL")
-			}
-			rawURL = a
 			continue
 		}
 
-		var value string
-		isMethod := false
-		switch {
-		case a == "-X" || a == "--request":
-			if i+1 >= len(args) {
-				return Request{}, fmt.Errorf("curl flag %s needs a value", a)
-			}
-			i++
-			value, isMethod = args[i], true
-		case strings.HasPrefix(a, "--request="):
-			value, isMethod = strings.TrimPrefix(a, "--request="), true
-		case strings.HasPrefix(a, "-X"):
-			value, isMethod = a[2:], true
-		case a == "-H" || a == "--header":
-			if i+1 >= len(args) {
-				return Request{}, fmt.Errorf("curl flag %s needs a value", a)
-			}
-			i++
-			value = args[i]
-		case strings.HasPrefix(a, "--header="):
-			value = strings.TrimPrefix(a, "--header=")
-		case strings.HasPrefix(a, "-H") && !strings.HasPrefix(a, "--"):
-			value = a[2:]
-		default:
-			return Request{}, fmt.Errorf("unsupported option %q: :curl takes only -H, -X and a URL", a)
+		value, isMethod, next, err := curlFlag(args, i)
+		if err != nil {
+			return "", "", nil, err
 		}
+		i = next
 		if isMethod {
 			if value == "" {
-				return Request{}, fmt.Errorf("curl flag %s needs a value", a)
+				return "", "", nil, fmt.Errorf("curl flag %s needs a value", a)
 			}
 			method = value
 			continue
 		}
-		name, val, ok := strings.Cut(value, ":")
-		name = strings.ToLower(strings.TrimSpace(name))
-		if !ok || name == "" {
-			return Request{}, fmt.Errorf("bad header %q: want Name: value", value)
+		name, val, err := splitHeader(value)
+		if err != nil {
+			return "", "", nil, err
 		}
-		headers[name] = append(headers[name], strings.TrimSpace(val))
+		headers[name] = append(headers[name], val)
 	}
+	return rawURL, method, headers, nil
+}
 
-	if rawURL == "" {
-		return Request{}, errors.New("no URL in curl line")
+// splitHeader splits "Name: value" into a lower-cased name and a trimmed value.
+func splitHeader(value string) (name, val string, err error) {
+	name, val, ok := strings.Cut(value, ":")
+	name = strings.ToLower(strings.TrimSpace(name))
+	if !ok || name == "" {
+		return "", "", fmt.Errorf("bad header %q: want Name: value", value)
 	}
-	typed := rawURL
-	hv := headers["host"]
-	// Hostless form: a path with no Host header; the host is a wildcard.
-	anyHost := strings.HasPrefix(rawURL, "/") && len(hv) == 0
+	return name, strings.TrimSpace(val), nil
+}
+
+// setCurlURL takes the non-flag word a as the URL; a blank word or a lone
+// backslash is a pasted line continuation and keeps rawURL.
+func setCurlURL(rawURL, a string) (string, error) {
+	if t := strings.TrimSpace(a); t == "" || t == "\\" {
+		return rawURL, nil
+	}
+	if rawURL != "" {
+		return "", errors.New("more than one URL")
+	}
+	return a, nil
+}
+
+// curlFlag reads the flag at args[i] and its value; next is the index of the
+// last word consumed.
+func curlFlag(args []string, i int) (value string, isMethod bool, next int, err error) {
+	a := args[i]
 	switch {
-	case anyHost:
-		// A placeholder authority keeps "//x" a path, not a host.
-		rawURL = "http://any" + rawURL
-	case !schemeRE.MatchString(rawURL):
-		rawURL = "http://" + rawURL
+	case a == "-X" || a == "--request":
+		value, next, err = curlFlagValue(args, i)
+		return value, true, next, err
+	case strings.HasPrefix(a, "--request="):
+		return strings.TrimPrefix(a, "--request="), true, i, nil
+	case strings.HasPrefix(a, "-X"):
+		return a[2:], true, i, nil
+	case a == "-H" || a == "--header":
+		value, next, err = curlFlagValue(args, i)
+		return value, false, next, err
+	case strings.HasPrefix(a, "--header="):
+		return strings.TrimPrefix(a, "--header="), false, i, nil
+	case strings.HasPrefix(a, "-H") && !strings.HasPrefix(a, "--"):
+		return a[2:], false, i, nil
 	}
-	u, err := url.Parse(rawURL)
+	return "", false, i, fmt.Errorf("unsupported option %q: :curl takes only -H, -X and a URL", a)
+}
+
+// curlFlagValue takes the word after the flag at args[i] as its value.
+func curlFlagValue(args []string, i int) (value string, next int, err error) {
+	if i+1 >= len(args) {
+		return "", i, fmt.Errorf("curl flag %s needs a value", args[i])
+	}
+	return args[i+1], i + 1, nil
+}
+
+// buildRequest turns the URL, method and headers into a Request.
+func buildRequest(rawURL, method string, headers map[string][]string) (Request, error) {
+	hv := headers["host"]
+	u, anyHost, err := parseCurlURL(rawURL, len(hv) == 0)
 	if err != nil {
-		if anyHost {
-			// Report the path as typed, not the placeholder authority.
-			return Request{}, fmt.Errorf("bad URL %q: %w", typed, errors.Unwrap(err))
-		}
-		return Request{}, fmt.Errorf("bad URL: %w", err)
+		return Request{}, err
 	}
 
 	host, port := u.Hostname(), u.Port()
@@ -156,6 +183,29 @@ func ParseCurl(line string) (Request, error) {
 	}, nil
 }
 
+// parseCurlURL parses the typed URL. Hostless form: a path with no Host
+// header (noHostHeader); the host is then a wildcard (anyHost).
+func parseCurlURL(typed string, noHostHeader bool) (u *url.URL, anyHost bool, err error) {
+	rawURL := typed
+	anyHost = strings.HasPrefix(rawURL, "/") && noHostHeader
+	switch {
+	case anyHost:
+		// A placeholder authority keeps "//x" a path, not a host.
+		rawURL = "http://any" + rawURL
+	case !schemeRE.MatchString(rawURL):
+		rawURL = "http://" + rawURL
+	}
+	u, err = url.Parse(rawURL)
+	if err != nil {
+		if anyHost {
+			// Report the path as typed, not the placeholder authority.
+			return nil, false, fmt.Errorf("bad URL %q: %w", typed, errors.Unwrap(err))
+		}
+		return nil, false, fmt.Errorf("bad URL: %w", err)
+	}
+	return u, anyHost, nil
+}
+
 // splitHostPort splits a Host header value; a value without a port is all host.
 func splitHostPort(v string) (host, port string) {
 	if h, p, err := net.SplitHostPort(v); err == nil {
@@ -168,61 +218,80 @@ func splitHostPort(v string) (host, port string) {
 // and backslashes: single quotes are literal, double quotes honour \" \\ \$
 // and \`, a bare backslash escapes the next rune. No expansion is performed.
 func splitShell(s string) ([]string, error) {
-	var (
-		out     []string
-		cur     strings.Builder
-		inWord  bool
-		runes   = []rune(s)
-		flushed = func() {
-			if inWord {
-				out = append(out, cur.String())
-				cur.Reset()
-				inWord = false
-			}
-		}
-	)
-	for i := 0; i < len(runes); i++ {
-		r := runes[i]
-		switch r {
-		case ' ', '\t', '\n', '\r':
-			flushed()
-		case '\\':
-			inWord = true
-			if i+1 < len(runes) {
-				i++
-				if runes[i] == '\n' { // line continuation
-					continue
-				}
-				cur.WriteRune(runes[i])
-			} else {
-				cur.WriteRune('\\')
-			}
-		case '\'':
-			inWord = true
-			i++
-			for ; i < len(runes) && runes[i] != '\''; i++ {
-				cur.WriteRune(runes[i])
-			}
-			if i >= len(runes) {
-				return nil, errors.New("unbalanced single quote")
-			}
-		case '"':
-			inWord = true
-			i++
-			for ; i < len(runes) && runes[i] != '"'; i++ {
-				if runes[i] == '\\' && i+1 < len(runes) && strings.ContainsRune("\"\\$`", runes[i+1]) {
-					i++
-				}
-				cur.WriteRune(runes[i])
-			}
-			if i >= len(runes) {
-				return nil, errors.New("unbalanced double quote")
-			}
-		default:
-			inWord = true
-			cur.WriteRune(r)
+	t := shellSplitter{runes: []rune(s)}
+	for t.i = 0; t.i < len(t.runes); t.i++ {
+		if err := t.step(); err != nil {
+			return nil, err
 		}
 	}
-	flushed()
-	return out, nil
+	t.flush()
+	return t.out, nil
+}
+
+// shellSplitter is the state of splitShell: i is the current rune.
+type shellSplitter struct {
+	cur    strings.Builder
+	out    []string
+	runes  []rune
+	i      int
+	inWord bool
+}
+
+func (t *shellSplitter) flush() {
+	if t.inWord {
+		t.out = append(t.out, t.cur.String())
+		t.cur.Reset()
+		t.inWord = false
+	}
+}
+
+// step consumes the rune at i and whatever it quotes or escapes.
+func (t *shellSplitter) step() error {
+	r := t.runes[t.i]
+	switch r {
+	case ' ', '\t', '\n', '\r':
+		t.flush()
+	case '\\':
+		t.inWord = true
+		t.escape()
+	case '\'':
+		t.inWord = true
+		return t.quoted('\'', "unbalanced single quote", false)
+	case '"':
+		t.inWord = true
+		return t.quoted('"', "unbalanced double quote", true)
+	default:
+		t.inWord = true
+		t.cur.WriteRune(r)
+	}
+	return nil
+}
+
+// escape handles a backslash outside quotes.
+func (t *shellSplitter) escape() {
+	if t.i+1 >= len(t.runes) {
+		t.cur.WriteRune('\\')
+		return
+	}
+	t.i++
+	if t.runes[t.i] == '\n' { // line continuation
+		return
+	}
+	t.cur.WriteRune(t.runes[t.i])
+}
+
+// quoted reads up to the closing quote; in double quotes a backslash escapes
+// \" \\ $ and `.
+func (t *shellSplitter) quoted(quote rune, unbalanced string, escapes bool) error {
+	t.i++
+	for ; t.i < len(t.runes) && t.runes[t.i] != quote; t.i++ {
+		if escapes && t.runes[t.i] == '\\' && t.i+1 < len(t.runes) && strings.ContainsRune("\"\\$`", t.runes[t.i+1]) {
+			t.i++
+		}
+		t.cur.WriteRune(t.runes[t.i])
+	}
+	if t.i >= len(t.runes) {
+		return errors.New(unbalanced)
+	}
+	return nil
 }

@@ -8,7 +8,6 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
-
 	"github.com/regeda/envoyadmin/internal/snapshot"
 )
 
@@ -100,21 +99,29 @@ func flagCell(flags []string, width int) string {
 			used += sep + lipgloss.Width(f)
 			continue
 		}
-		if i == 0 {
-			room := width - reserve
-			if room < 1 { // no space for a marker beside even one cell of the flag
-				room, remaining = width, 0
-			}
-			parts = append(parts, flagStyle(f).Render(truncEllipsis(f, room)))
-		} else {
-			remaining = len(flags) - i
-		}
-		if remaining > 0 {
-			parts = append(parts, dimStyle.Render("+"+strconv.Itoa(remaining)))
-		}
+		parts = append(parts, flagOverflow(flags, i, width, reserve, remaining)...)
 		break
 	}
 	return pad(strings.Join(parts, " "), width)
+}
+
+// flagOverflow renders what is shown for the flag i that does not fit: a
+// truncated first flag, then the "+N" marker for the flags left out.
+func flagOverflow(flags []string, i, width, reserve, remaining int) []string {
+	var parts []string
+	if i == 0 {
+		room := width - reserve
+		if room < 1 { // no space for a marker beside even one cell of the flag
+			room, remaining = width, 0
+		}
+		parts = append(parts, flagStyle(flags[i]).Render(truncEllipsis(flags[i], room)))
+	} else {
+		remaining = len(flags) - i
+	}
+	if remaining > 0 {
+		parts = append(parts, dimStyle.Render("+"+strconv.Itoa(remaining)))
+	}
+	return parts
 }
 
 func orDash(s string) string {
@@ -124,17 +131,20 @@ func orDash(s string) string {
 	return s
 }
 
-// endpointLines builds the h lines of the table without clipping. The layout
-// is sized so that no line is wider than w (barring absurdly small widths).
-func endpointLines(c snapshot.Cluster, w, h, scroll int) []string {
-	hosts := sortedHosts(c.Hosts)
+// endpointLayout is the column sizing of the endpoints table.
+type endpointLayout struct {
+	addrW, weightW, zoneW, flagsW int
+	showZone, showWeight          bool
+}
+
+// newEndpointLayout sizes the columns: ADDRESS FLAGS [WEIGHT] [ZONE] RQ_ACTIVE
+// RQ_ERR CX_ACTIVE. FLAGS gets what the hosts need; WEIGHT, then ZONE, are
+// dropped before FLAGS is squeezed. ZONE and WEIGHT are sized to their widest value.
+func newEndpointLayout(hosts []snapshot.Host, w int) endpointLayout {
 	addrW := minAddrW
 	for _, hst := range hosts {
 		addrW = max(addrW, min(lipgloss.Width(hst.Address), maxAddrW))
 	}
-	// columns: ADDRESS FLAGS [WEIGHT] [ZONE] RQ_ACTIVE RQ_ERR CX_ACTIVE
-	// FLAGS gets what the hosts need; WEIGHT, then ZONE, are dropped before
-	// FLAGS is squeezed. ZONE and WEIGHT are sized to their widest value.
 	weightW, zoneW := minWeightW, minZoneW
 	for _, hst := range hosts {
 		weightW = max(weightW, digits(int(hst.Weight)))
@@ -161,7 +171,16 @@ func endpointLines(c snapshot.Cluster, w, h, scroll int) []string {
 			break
 		}
 	}
-	flagsW = max(flagsW, 1)
+	return endpointLayout{addrW: addrW, weightW: weightW, zoneW: zoneW, flagsW: max(flagsW, 1), showZone: showZone, showWeight: showWeight}
+}
+
+// endpointLines builds the h lines of the table without clipping. The layout
+// is sized so that no line is wider than w (barring absurdly small widths).
+func endpointLines(c snapshot.Cluster, w, h, scroll int) []string {
+	hosts := sortedHosts(c.Hosts)
+	lay := newEndpointLayout(hosts, w)
+	addrW, weightW, zoneW, flagsW := lay.addrW, lay.weightW, lay.zoneW, lay.flagsW
+	showZone, showWeight := lay.showZone, lay.showWeight
 
 	row := func(addr, flags, weight, zone, rqa, rqe, cxa string) string {
 		cells := []string{pad(trunc(addr, addrW), addrW), flags}

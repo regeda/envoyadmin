@@ -4,16 +4,15 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-
 	"github.com/regeda/envoyadmin/internal/snapshot"
 )
 
 // rowCtx is what a list row needs to draw itself.
 type rowCtx struct {
+	Hits      []int
 	Width     int
 	Cursor    bool
 	Unfocused bool
-	Hits      []int // fuzzy match offsets (bytes) into FilterText()
 }
 
 // resourceItem is one list entry plus everything its details need. The panes

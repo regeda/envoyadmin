@@ -9,7 +9,6 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-
 	"github.com/regeda/envoyadmin/internal/config"
 	"github.com/regeda/envoyadmin/internal/snapshot"
 )
@@ -27,10 +26,10 @@ type Fetcher func(ctx context.Context) (snapshot.Snapshot, error)
 
 type Options struct {
 	Ctx    context.Context
-	Config config.Config
 	Fetch  Fetcher
-	Routes RouteFetcher // nil: route search is unavailable
+	Routes RouteFetcher
 	Clock  func() time.Time
+	Config config.Config
 	Color  bool
 }
 
@@ -50,36 +49,32 @@ const (
 )
 
 type snapshotMsg struct {
-	snap snapshot.Snapshot
 	err  error
+	snap snapshot.Snapshot
 }
 
 type tickMsg struct{}
 
 type Model struct {
-	opts Options
-
 	snap       snapshot.Snapshot
-	hasSnap    bool
-	err        error
-	dismissed  string
-	bannerRows int // rows the last layout gave the banner; the clock must not change it
 	lastOK     time.Time
-	inflight   bool
+	err        error
+	routeRefs  map[string][]snapshot.RouteRef
+	routes     *routeCache
+	opts       Options
+	dismissed  string
+	pull       routePull
+	views      [kindCount]view
+	search     routeSearch
 	state      connState
-
-	focus         focus
-	help          bool
-	width, height int
-	views         [kindCount]view // an array, so a Model copy never aliases another's views
-	active        resourceKind
-
-	// Route search. The cache and the refs it was filled with are shared by
-	// Model copies; touch them only from Update.
-	search    routeSearch
-	routes    *routeCache
-	routeRefs map[string][]snapshot.RouteRef
-	pull      routePull
+	width      int
+	height     int
+	active     resourceKind
+	focus      focus
+	bannerRows int
+	help       bool
+	inflight   bool
+	hasSnap    bool
 }
 
 // New returns a model whose first fetch is already considered in flight; Init
@@ -266,6 +261,11 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.syncDetails()
 		return m, nil
 	}
+	return m.handleBrowseKey(k)
+}
+
+// handleBrowseKey handles a key outside the route search and the list filter.
+func (m Model) handleBrowseKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch k.String() {
 	case "q":
 		return m, tea.Quit
@@ -286,12 +286,17 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.switchTo((m.active + 1) % kindCount)
 	case "shift+tab":
 		m.switchTo((m.active + kindCount - 1) % kindCount)
+	default:
+		m.handlePaneKey(k)
+	}
+	return m, nil
+}
+
+// handlePaneKey handles the keys that act on the panes.
+func (m *Model) handlePaneKey(k tea.KeyMsg) {
+	switch k.String() {
 	case "enter":
-		if m.focus == focusList {
-			if _, ok := m.cur().list.Selected(); ok {
-				m.setFocus(focusDetail)
-			}
-		}
+		m.enterDetail()
 	case "esc":
 		if m.focus == focusDetail {
 			m.setFocus(focusList)
@@ -306,17 +311,31 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case ":":
 		m.openSearch()
 	default:
-		if k.String() == "/" {
-			m.setFocus(focusList)
-		}
-		if m.focus == focusList {
-			m.cur().list.HandleKey(k)
-			m.syncDetails()
-		} else {
-			m.cur().detail.HandleKey(k)
-		}
+		m.passKey(k)
 	}
-	return m, nil
+}
+
+// enterDetail focuses the detail pane when the list has a selection.
+func (m *Model) enterDetail() {
+	if m.focus != focusList {
+		return
+	}
+	if _, ok := m.cur().list.Selected(); ok {
+		m.setFocus(focusDetail)
+	}
+}
+
+// passKey hands a key to the focused pane.
+func (m *Model) passKey(k tea.KeyMsg) {
+	if k.String() == "/" {
+		m.setFocus(focusList)
+	}
+	if m.focus == focusList {
+		m.cur().list.HandleKey(k)
+		m.syncDetails()
+	} else {
+		m.cur().detail.HandleKey(k)
+	}
 }
 
 func (m Model) connLines() (string, string) {
@@ -364,15 +383,21 @@ const listenersHelpLine = "x dismiss r refresh ? close q quit : routes tab/shift
 // searchHelpLine lists the route search keys; every other key is input.
 const searchHelpLine = "esc close  enter run  ↑↓ move  tab overview/config  PgUp/PgDn scroll  :name <text>  :curl <url>"
 
+// helpText is the key list shown while help is open.
+func (m Model) helpText() string {
+	switch {
+	case m.searching():
+		return searchHelpLine
+	case m.active == kindListeners:
+		return listenersHelpLine
+	default:
+		return helpLine
+	}
+}
+
 func (m Model) statusLine() string {
-	if m.help && m.searching() {
-		return renderStatus(m.width, " "+searchHelpLine, "")
-	}
-	if m.help && m.active == kindListeners {
-		return renderStatus(m.width, " "+listenersHelpLine, "")
-	}
-	if m.help {
-		return renderStatus(m.width, " "+helpLine, "") // the summary gives way to the keys
+	if m.help { // the summary gives way to the keys
+		return renderStatus(m.width, " "+m.helpText(), "")
 	}
 	if m.searching() {
 		left := " routes of " + m.search.listener.Name

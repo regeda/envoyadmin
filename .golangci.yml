@@ -1,0 +1,89 @@
+version: "2"
+run:
+  modules-download-mode: mod
+linters:
+  default: none
+  enable:
+    - bodyclose
+    - cyclop
+    - dupword
+    - errcheck
+    - errname
+    - funlen
+    - gocognit
+    - gocritic
+    - godot
+    - godox
+    - govet
+    - ineffassign
+    - misspell
+    - nestif
+    - nolintlint
+    - revive
+    - rowserrcheck
+    - sqlclosecheck
+    - staticcheck
+    - unparam
+    - unused
+  settings:
+    cyclop:
+      max-complexity: 10
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+      exclude-functions:
+        - io/ioutil.ReadFile
+        - io.Copy(*bytes.Buffer)
+        - io.Copy(os.Stdout)
+    funlen:
+      lines: 60
+      statements: 40
+    gocognit:
+      min-complexity: 15
+    govet:
+      enable:
+        - fieldalignment
+    nestif:
+      min-complexity: 5
+    # Policy: a //nolint names the linter and gives a reason,
+    # `//nolint:<linter> // <reason>`. Unused directives are errors.
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+      allow-unused: false
+    staticcheck:
+      checks:
+        - all
+    revive:
+      rules:
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: error-return
+        - name: errorf
+        - name: indent-error-flow
+        - name: superfluous-else
+        - name: empty-block
+        - name: unreachable-code
+        - name: receiver-naming
+        - name: redefines-builtin-id
+        - name: use-any
+        - name: use-errors-new
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - cyclop
+          - gocognit
+          - funlen
+formatters:
+  enable:
+    - gofmt
+    - goimports
+    - gci
+  settings:
+    gci:
+      sections:
+        - standard
+        - default
+    gofmt:
+      simplify: true

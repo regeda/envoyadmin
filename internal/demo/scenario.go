@@ -13,65 +13,64 @@ import (
 )
 
 type Host struct {
-	Address  string // "10.0.0.1:8080", or "unix:/path" for a pipe address
+	Health   map[string]any
+	Address  string
 	Zone     string
-	Weight   uint32
-	Health   map[string]any // extra health_status fields, e.g. {"failed_outlier_check": true}
 	RqActive uint64
 	RqError  uint64
 	CxActive uint64
+	Weight   uint32
 	NoStats  bool
 }
 
 type Cluster struct {
 	Name    string
-	Type    string // "" means STATIC (omitted from JSON, as Envoy omits defaults)
-	Static  bool
-	Version string // dynamic clusters only
+	Type    string
+	Version string
 	Hosts   []Host
-	Secrets []string // names of secrets referenced through SDS
+	Secrets []string
+	Static  bool
 }
 
 // Chain is one filter chain of a Listener.
 type Chain struct {
-	Name    string
-	Match   map[string]any // filter_chain_match as Envoy emits it
-	Filters []string       // short names, e.g. "tcp_proxy"
-	// HTTPFilters are full http filter names emitted under the
-	// http_connection_manager filter's typed_config (ignored for other filters).
+	Match       map[string]any
+	Name        string
+	RouteConfig string
+	Filters     []string
 	HTTPFilters []string
 	TLS         bool
-	// RouteConfig is emitted as rds.route_config_name in the
-	// http_connection_manager's typed config (ignored for other filters).
-	RouteConfig string
 }
 
 type Listener struct {
-	Name       string
-	Address    string // "host:port" or "unix:/path"
-	Static     bool
-	Version    string
-	State      string // "active", "warming", "draining" or "error" (ignored when Static)
-	ServingOld bool   // warming/error update next to a still-active older version
-	Error      string // error details when State == "error"
-	Chains     []Chain
 	Default    *Chain
-	Secrets    []string // names of secrets referenced through SDS by the first chain
+	Name       string
+	Address    string
+	Version    string
+	State      string
+	Error      string
+	Chains     []Chain
+	Secrets    []string
+	Static     bool
+	ServingOld bool
 }
 
 // DemoCert describes the certificate inside a demo secret. DaysLeft is
 // relative to Scenario.Updated and negative means already expired.
 type DemoCert struct {
-	Serial   int64
 	SANs     []string
+	Serial   int64
 	DaysLeft int
 }
 
 // Secret is one entry of Envoy's secrets dump. State is "active", "warming" or
 // "static".
 type Secret struct {
-	Name, Version, Kind, State string
-	Cert                       *DemoCert
+	Cert    *DemoCert
+	Name    string
+	Version string
+	Kind    string
+	State   string
 }
 
 // RouteConfig is one dynamic route configuration; VirtualHosts are emitted as
@@ -109,15 +108,24 @@ func (s Scenario) ClustersJSON() []byte {
 	return mustJSON(map[string]any{"cluster_statuses": statuses})
 }
 
-func (h Host) json() map[string]any {
-	addr := map[string]any{}
-	if path, ok := strings.CutPrefix(h.Address, "unix:"); ok {
-		addr["pipe"] = map[string]any{"path": path}
-	} else {
-		host, port, _ := net.SplitHostPort(h.Address)
-		n, _ := strconv.Atoi(port)
-		addr["socket_address"] = map[string]any{"address": host, "port_value": n}
+// addressJSON renders a "host:port" or "unix:path" address as Envoy does.
+func addressJSON(address string) map[string]any {
+	if path, ok := strings.CutPrefix(address, "unix:"); ok {
+		return map[string]any{"pipe": map[string]any{"path": path}}
 	}
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		host, port = "", "0"
+	}
+	n, err := strconv.Atoi(port)
+	if err != nil {
+		n = 0
+	}
+	return map[string]any{"socket_address": map[string]any{"address": host, "port_value": n}}
+}
+
+func (h Host) json() map[string]any {
+	addr := addressJSON(h.Address)
 	hs := map[string]any{"eds_health_status": "HEALTHY"}
 	for k, v := range h.Health {
 		hs[k] = v
@@ -156,12 +164,16 @@ func (s Scenario) ConfigDumpJSON(resource string) ([]byte, bool) {
 	case "static_listeners":
 		return mustJSON(map[string]any{"configs": s.listenerElements(true)}), true
 	case "dynamic_active_clusters", "static_clusters":
-	default:
-		return nil, false
+		return mustJSON(map[string]any{"configs": s.clusterElements(resource == "static_clusters")}), true
 	}
+	return nil, false
+}
+
+// clusterElements returns one configs[] element per static or dynamic cluster.
+func (s Scenario) clusterElements(static bool) []any {
 	configs := []any{}
 	for _, c := range s.Clusters {
-		if c.Static != (resource == "static_clusters") {
+		if c.Static != static {
 			continue
 		}
 		cl := map[string]any{
@@ -187,7 +199,7 @@ func (s Scenario) ConfigDumpJSON(resource string) ([]byte, bool) {
 		}
 		configs = append(configs, e)
 	}
-	return mustJSON(map[string]any{"configs": configs}), true
+	return configs
 }
 
 func (c Chain) json() map[string]any {
@@ -249,20 +261,13 @@ func httpFilterProto(name string) string {
 }
 
 func (l Listener) json() map[string]any {
-	addr := map[string]any{}
-	if path, ok := strings.CutPrefix(l.Address, "unix:"); ok {
-		addr["pipe"] = map[string]any{"path": path}
-	} else {
-		host, port, _ := net.SplitHostPort(l.Address)
-		n, _ := strconv.Atoi(port)
-		addr["socket_address"] = map[string]any{"address": host, "port_value": n}
-	}
-	chains := []any{}
+	addr := addressJSON(l.Address)
+	chains := []map[string]any{}
 	for _, c := range l.Chains {
 		chains = append(chains, c.json())
 	}
 	if len(l.Secrets) > 0 && len(chains) > 0 {
-		chains[0].(map[string]any)["transport_socket"] = sdsContext(l.Secrets)
+		chains[0]["transport_socket"] = sdsContext(l.Secrets)
 	}
 	out := map[string]any{
 		"@type":         "type.googleapis.com/envoy.config.listener.v3.Listener",
@@ -289,60 +294,61 @@ func (s Scenario) listenerState(l Listener) map[string]any {
 func (s Scenario) listenerElements(static bool) []any {
 	out := []any{}
 	for _, l := range s.Listeners {
-		if l.Static != static {
-			continue
-		}
-		if static {
+		switch {
+		case l.Static != static:
+		case static:
 			out = append(out, map[string]any{
 				"@type":        "type.googleapis.com/envoy.admin.v3.ListenersConfigDump.StaticListener",
 				"listener":     l.json(),
 				"last_updated": s.Updated.Format(time.RFC3339Nano),
 			})
-			continue
-		}
-		e := map[string]any{
-			"@type": "type.googleapis.com/envoy.admin.v3.ListenersConfigDump.DynamicListener",
-			"name":  l.Name,
-		}
-		var twin map[string]any
-		switch l.State {
-		case "warming":
-			e["warming_state"] = s.listenerState(l)
-			if l.ServingOld {
-				old := l
-				old.Version = "prev"
-				e["active_state"] = s.listenerState(old)
-			}
-		case "draining":
-			e["draining_state"] = s.listenerState(l)
-		case "error":
-			e["error_state"] = map[string]any{
-				"failed_configuration": l.json(),
-				"last_update_attempt":  s.Updated.Format(time.RFC3339Nano),
-				"details":              l.Error + "\n", // Envoy ends details with a newline
-			}
-			if l.ServingOld {
-				old := l
-				old.Version = "prev"
-				e["active_state"] = s.listenerState(old)
-			}
-			// Envoy also emits a second, nameless element holding only the error.
-			twin = map[string]any{
-				"@type": "type.googleapis.com/envoy.admin.v3.ListenersConfigDump.DynamicListener",
-				"error_state": map[string]any{
-					"failed_configuration": l.json(),
-					"details":              l.Error + "\n",
-				},
-			}
 		default:
-			e["active_state"] = s.listenerState(l)
-		}
-		out = append(out, e)
-		if twin != nil {
-			out = append(out, twin)
+			out = append(out, s.dynamicListenerElements(l)...)
 		}
 	}
 	return out
+}
+
+// withServingOld adds the previous version's active_state to e when l still serves it.
+func (s Scenario) withServingOld(e map[string]any, l Listener) {
+	if l.ServingOld {
+		old := l
+		old.Version = "prev"
+		e["active_state"] = s.listenerState(old)
+	}
+}
+
+// dynamicListenerElements returns the configs[] elements of one dynamic listener.
+func (s Scenario) dynamicListenerElements(l Listener) []any {
+	e := map[string]any{
+		"@type": "type.googleapis.com/envoy.admin.v3.ListenersConfigDump.DynamicListener",
+		"name":  l.Name,
+	}
+	switch l.State {
+	case "warming":
+		e["warming_state"] = s.listenerState(l)
+		s.withServingOld(e, l)
+	case "draining":
+		e["draining_state"] = s.listenerState(l)
+	case "error":
+		e["error_state"] = map[string]any{
+			"failed_configuration": l.json(),
+			"last_update_attempt":  s.Updated.Format(time.RFC3339Nano),
+			"details":              l.Error + "\n", // Envoy ends details with a newline
+		}
+		s.withServingOld(e, l)
+		// Envoy also emits a second, nameless element holding only the error.
+		return []any{e, map[string]any{
+			"@type": "type.googleapis.com/envoy.admin.v3.ListenersConfigDump.DynamicListener",
+			"error_state": map[string]any{
+				"failed_configuration": l.json(),
+				"details":              l.Error + "\n",
+			},
+		}}
+	default:
+		e["active_state"] = s.listenerState(l)
+	}
+	return []any{e}
 }
 
 // RouteConfigsJSON returns the dump for ?resource=dynamic_route_configs or
@@ -540,41 +546,9 @@ func (s Scenario) SecretsJSON(resource string) ([]byte, bool) {
 	}
 	configs := []any{}
 	for _, sec := range s.Secrets {
-		if sec.State != want {
-			continue
+		if sec.State == want {
+			configs = append(configs, s.secretElement(sec, typ, want != "static"))
 		}
-		body := map[string]any{"name": sec.Name}
-		var pemText string
-		if sec.Cert != nil {
-			pemText = certPEM(sec.Cert.Serial, sec.Cert.SANs, s.Updated.AddDate(0, 0, sec.Cert.DaysLeft))
-		}
-		switch sec.Kind {
-		case "validation_context":
-			ca := map[string]any{}
-			if pemText != "" {
-				ca["inline_string"] = pemText
-			}
-			body["validation_context"] = map[string]any{"trusted_ca": ca}
-		default:
-			chain := map[string]any{}
-			if pemText != "" {
-				chain["inline_string"] = pemText
-			}
-			body["tls_certificate"] = map[string]any{
-				"certificate_chain": chain,
-				"private_key":       map[string]any{"inline_string": "[redacted]"},
-			}
-		}
-		e := map[string]any{
-			"@type":        "type.googleapis.com/envoy.admin.v3.SecretsConfigDump." + typ,
-			"name":         sec.Name,
-			"last_updated": s.Updated.Format(time.RFC3339Nano),
-			"secret":       body,
-		}
-		if want != "static" {
-			e["version_info"] = sec.Version
-		}
-		configs = append(configs, e)
 	}
 	return mustJSON(map[string]any{"configs": configs}), true
 }
@@ -635,4 +609,39 @@ func Big(n int) Scenario {
 		sc.Listeners[i].Secrets = nil // Big serves no secrets for them to reference
 	}
 	return sc
+}
+
+// secretElement renders one secret as a configs[] element.
+func (s Scenario) secretElement(sec Secret, typ string, versioned bool) map[string]any {
+	var pemText string
+	if sec.Cert != nil {
+		pemText = certPEM(sec.Cert.Serial, sec.Cert.SANs, s.Updated.AddDate(0, 0, sec.Cert.DaysLeft))
+	}
+	body := map[string]any{"name": sec.Name}
+	if sec.Kind == "validation_context" {
+		ca := map[string]any{}
+		if pemText != "" {
+			ca["inline_string"] = pemText
+		}
+		body["validation_context"] = map[string]any{"trusted_ca": ca}
+	} else {
+		chain := map[string]any{}
+		if pemText != "" {
+			chain["inline_string"] = pemText
+		}
+		body["tls_certificate"] = map[string]any{
+			"certificate_chain": chain,
+			"private_key":       map[string]any{"inline_string": "[redacted]"},
+		}
+	}
+	e := map[string]any{
+		"@type":        "type.googleapis.com/envoy.admin.v3.SecretsConfigDump." + typ,
+		"name":         sec.Name,
+		"last_updated": s.Updated.Format(time.RFC3339Nano),
+		"secret":       body,
+	}
+	if versioned {
+		e["version_info"] = sec.Version
+	}
+	return e
 }

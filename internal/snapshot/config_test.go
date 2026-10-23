@@ -8,7 +8,6 @@ import (
 	"time"
 
 	adminv3 "github.com/envoyproxy/go-control-plane/envoy/admin/v3"
-
 	"github.com/regeda/envoyadmin/internal/admin"
 )
 
@@ -120,8 +119,8 @@ func (b barrierClient) ServerInfo(ctx context.Context) (*adminv3.ServerInfo, err
 }
 
 func TestFetchRunsSecondaryCallsInParallel(t *testing.T) {
-	real := demoClient(t)
-	b := barrierClient{Client: real, started: make(chan struct{}, 3)}
+	client := demoClient(t)
+	b := barrierClient{Client: client, started: make(chan struct{}, 3)}
 	start := time.Now()
 	if _, err := Fetch(context.Background(), b); err != nil {
 		t.Fatal(err)

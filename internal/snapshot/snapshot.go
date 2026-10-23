@@ -12,7 +12,6 @@ import (
 	"time"
 
 	adminv3 "github.com/envoyproxy/go-control-plane/envoy/admin/v3"
-
 	"github.com/regeda/envoyadmin/internal/admin"
 )
 
@@ -55,10 +54,11 @@ func (h Host) Ejected() bool {
 }
 
 type Cluster struct {
-	Name, Type string
-	Hosts      []Host
-	Config     ConfigInfo
-	Secrets    []SecretUse
+	Name    string
+	Type    string
+	Hosts   []Host
+	Secrets []SecretUse
+	Config  ConfigInfo
 }
 
 func (c Cluster) HealthyCount() int {
@@ -95,13 +95,13 @@ func (c Cluster) Health() Health {
 }
 
 type Snapshot struct {
+	FetchedAt    time.Time
+	ListenersErr string
+	SecretsErr   string
+	Version      string
 	Clusters     []Cluster
 	Listeners    []Listener
-	ListenersErr string // "listeners unavailable: <reason>" when the dump failed
 	Secrets      []Secret
-	SecretsErr   string // "secrets unavailable: <reason>" when the dump failed
-	Version      string
-	FetchedAt    time.Time
 }
 
 // ListenersNotActive counts listeners that are warming, draining or in error.
@@ -153,18 +153,48 @@ func FetchWithClock(ctx context.Context, c admin.Client, now func() time.Time) (
 	)
 	wg.Add(4)
 	go func() { defer wg.Done(); cfgs, cfgErr = c.ClusterConfigs(ctx) }()
-	go func() { defer wg.Done(); info, _ = c.ServerInfo(ctx) }()
+	go func() { defer wg.Done(); info = serverInfo(ctx, c) }()
 	go func() { defer wg.Done(); lcs, listenersErr = c.ListenerConfigs(ctx) }()
 	go func() { defer wg.Done(); scs, secretsErr = c.SecretConfigs(ctx) }()
 	wg.Wait()
 
+	out := Snapshot{FetchedAt: now(), Version: parseVersion(info.GetVersion())}
+	out.Clusters = clustersFrom(cl.GetClusterStatuses(), cfgs, cfgErr)
+	sortClusters(out.Clusters)
+	if listenersErr != nil {
+		out.ListenersErr = "listeners unavailable: " + listenersErr.Error()
+	}
+	for _, lc := range lcs {
+		out.Listeners = append(out.Listeners, listenerFrom(lc))
+	}
+	sortListeners(out.Listeners)
+	if secretsErr != nil {
+		out.SecretsErr = "secrets unavailable: " + secretsErr.Error()
+	} else {
+		out.Secrets = secretsFrom(scs, out.FetchedAt)
+	}
+	linkSecrets(&out)
+	return out, nil
+}
+
+// serverInfo fetches /server_info; it only feeds the version, so a failure
+// degrades to nil (an unknown version) instead of failing the snapshot.
+func serverInfo(ctx context.Context, c admin.Client) *adminv3.ServerInfo {
+	info, err := c.ServerInfo(ctx)
+	if err != nil {
+		return nil
+	}
+	return info
+}
+
+// clustersFrom joins the /clusters statuses with the config dump by name.
+func clustersFrom(statuses []*adminv3.ClusterStatus, cfgs []admin.ClusterConfig, cfgErr error) []Cluster {
 	cfgByName := make(map[string]admin.ClusterConfig, len(cfgs))
 	for _, cc := range cfgs {
 		cfgByName[cc.Name] = cc
 	}
-
-	out := Snapshot{FetchedAt: now(), Version: parseVersion(info.GetVersion())}
-	for _, st := range cl.GetClusterStatuses() {
+	var clusters []Cluster
+	for _, st := range statuses {
 		cluster := Cluster{Name: st.GetName(), Type: "?"}
 		for _, hs := range st.GetHostStatuses() {
 			cluster.Hosts = append(cluster.Hosts, hostFrom(hs))
@@ -181,23 +211,9 @@ func FetchWithClock(ctx context.Context, c admin.Client, now func() time.Time) (
 			cluster.Config.LastUpdated = cc.LastUpdated
 			cluster.Config.Static = cc.Static
 		}
-		out.Clusters = append(out.Clusters, cluster)
+		clusters = append(clusters, cluster)
 	}
-	sortClusters(out.Clusters)
-	if listenersErr != nil {
-		out.ListenersErr = "listeners unavailable: " + listenersErr.Error()
-	}
-	for _, lc := range lcs {
-		out.Listeners = append(out.Listeners, listenerFrom(lc))
-	}
-	sortListeners(out.Listeners)
-	if secretsErr != nil {
-		out.SecretsErr = "secrets unavailable: " + secretsErr.Error()
-	} else {
-		out.Secrets = secretsFrom(scs, out.FetchedAt)
-	}
-	linkSecrets(&out)
-	return out, nil
+	return clusters
 }
 
 func severity(h Health) int {

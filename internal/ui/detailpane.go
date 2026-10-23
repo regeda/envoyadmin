@@ -19,24 +19,24 @@ const (
 )
 
 type detailPane struct {
-	tab           tab
-	item          resourceItem
-	has           bool
-	emptyText     string
-	width, height int
-	scroll        int // overview tab
-	vp            viewport.Model
-	color         bool
-	focused       bool
-
-	// The Config tab's rendered YAML and the inputs it was rendered from. The
-	// conversion and chroma run only while the Config tab shows, and only when
-	// these inputs change.
-	cfgKey, cfgText, cfgOut string
-	cfgProblem              string
-	cfgYAML, cfgErr         string // explicit overrides and fetch error it was built from
-	cfgJSON                 []byte
-	highlights              int
+	item       resourceItem
+	cfgKey     string
+	emptyText  string
+	cfgErr     string
+	cfgYAML    string
+	cfgProblem string
+	cfgOut     string
+	cfgText    string
+	cfgJSON    []byte
+	vp         viewport.Model
+	width      int
+	scroll     int
+	height     int
+	tab        tab
+	highlights int
+	focused    bool
+	color      bool
+	has        bool
 }
 
 func newDetailPane(color bool) detailPane {
@@ -98,6 +98,12 @@ func (d *detailPane) syncConfig() {
 	if !keyChanged && text == d.cfgText && problem == d.cfgProblem {
 		return
 	}
+	d.applyRendered(text, problem, keyChanged)
+}
+
+// applyRendered stores freshly rendered config text and problem, re-highlighting
+// only when the text (or the selected item) changed.
+func (d *detailPane) applyRendered(text, problem string, keyChanged bool) {
 	if keyChanged || text != d.cfgText {
 		d.cfgOut = highlightYAML(text, d.color)
 		d.cfgText = text
@@ -154,16 +160,24 @@ func (d *detailPane) HandleKey(k tea.KeyMsg) {
 		return
 	}
 	if d.tab == tabConfig {
-		switch k.String() {
-		case "home", "g":
-			d.vp.GotoTop()
-		case "end", "G":
-			d.vp.GotoBottom()
-		default:
-			d.vp, _ = d.vp.Update(k)
-		}
+		d.handleConfigKey(k)
 		return
 	}
+	d.handleOverviewKey(k)
+}
+
+func (d *detailPane) handleConfigKey(k tea.KeyMsg) {
+	switch k.String() {
+	case "home", "g":
+		d.vp.GotoTop()
+	case "end", "G":
+		d.vp.GotoBottom()
+	default:
+		d.vp, _ = d.vp.Update(k)
+	}
+}
+
+func (d *detailPane) handleOverviewKey(k tea.KeyMsg) {
 	maxS := d.item.OverviewMaxScroll(d.width, d.height-1)
 	switch k.String() {
 	case "up", "k":

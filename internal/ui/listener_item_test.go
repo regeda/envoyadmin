@@ -8,7 +8,6 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
-
 	"github.com/regeda/envoyadmin/internal/snapshot"
 )
 
@@ -36,11 +35,11 @@ func TestListenerItemIdentity(t *testing.T) {
 
 func TestListenerRowGlyphsAndLayout(t *testing.T) {
 	cases := []struct {
-		state snapshot.ListenerStatus
 		glyph string
+		state snapshot.ListenerStatus
 	}{
-		{snapshot.ListenerActive, "●"}, {snapshot.ListenerWarming, "◐"},
-		{snapshot.ListenerDraining, "◐"}, {snapshot.ListenerError, "✗"},
+		{state: snapshot.ListenerActive, glyph: "●"}, {state: snapshot.ListenerWarming, glyph: "◐"},
+		{state: snapshot.ListenerDraining, glyph: "◐"}, {state: snapshot.ListenerError, glyph: "✗"},
 	}
 	for _, c := range cases {
 		row := ansiStrip(item0(lst("api", "0.0.0.0:8080", c.state)).Row(rowCtx{Width: 36}))
@@ -340,13 +339,13 @@ func TestListenerOverviewMaxScrollCountsTheErrorBlock(t *testing.T) {
 		l.Chains = append(l.Chains, snapshot.FilterChain{Label: fmt.Sprintf("chain-%02d", i), Filters: fl("tcp_proxy")})
 	}
 	it := item0(l)
-	max := it.OverviewMaxScroll(60, 20)
-	last := ansiStrip(strings.Join(overviewRows(it, 60, 20, max), "\n"))
+	maxScroll := it.OverviewMaxScroll(60, 20)
+	last := ansiStrip(strings.Join(overviewRows(it, 60, 20, maxScroll), "\n"))
 	if !strings.Contains(last, "chain-14") || !strings.Contains(last, "tcp_proxy") {
 		t.Fatalf("max scroll with an error block must reveal the last chain:\n%s", last)
 	}
-	if max2 := it.OverviewMaxScroll(60, 21); max2 != max-1 {
-		t.Fatalf("one more row of height is one less scroll: %d vs %d", max2, max)
+	if max2 := it.OverviewMaxScroll(60, 21); max2 != maxScroll-1 {
+		t.Fatalf("one more row of height is one less scroll: %d vs %d", max2, maxScroll)
 	}
 	// the very last line is the last chain's filter line, so max is not too large either
 	rows := strings.Split(last, "\n")

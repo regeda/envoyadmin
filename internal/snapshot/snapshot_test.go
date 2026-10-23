@@ -12,7 +12,6 @@ import (
 
 	adminv3 "github.com/envoyproxy/go-control-plane/envoy/admin/v3"
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
-
 	"github.com/regeda/envoyadmin/internal/admin"
 	"github.com/regeda/envoyadmin/internal/demo"
 )
@@ -144,10 +143,13 @@ func (s stub) ServerInfo(ctx context.Context) (*adminv3.ServerInfo, error) {
 func TestPartialFailures(t *testing.T) {
 	srv := httptest.NewServer(demo.NewServer(demo.Healthy()))
 	defer srv.Close()
-	real, _ := admin.NewHTTP(srv.URL, time.Second)
+	client, err := admin.NewHTTP(srv.URL, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
 	boom := errors.New("boom")
 
-	s, err := Fetch(context.Background(), stub{Client: real, cfgErr: boom})
+	s, err := Fetch(context.Background(), stub{Client: client, cfgErr: boom})
 	if err != nil {
 		t.Fatalf("config failure must not fail the snapshot: %v", err)
 	}
@@ -157,12 +159,12 @@ func TestPartialFailures(t *testing.T) {
 		}
 	}
 
-	s, err = Fetch(context.Background(), stub{Client: real, infoErr: boom})
+	s, err = Fetch(context.Background(), stub{Client: client, infoErr: boom})
 	if err != nil || s.Version != "" || len(s.Clusters) == 0 {
 		t.Fatalf("server_info failure: %v %+v", err, s)
 	}
 
-	if _, err = Fetch(context.Background(), stub{Client: real, clustersErr: boom}); !errors.Is(err, boom) {
+	if _, err = Fetch(context.Background(), stub{Client: client, clustersErr: boom}); !errors.Is(err, boom) {
 		t.Fatalf("clusters failure must fail: %v", err)
 	}
 }
@@ -211,7 +213,7 @@ func envoyServer(t *testing.T, files map[string]string) *admin.HTTP {
 			http.NotFound(w, r)
 			return
 		}
-		_, _ = w.Write([]byte(body))
+		writeBody(t, w, []byte(body))
 	}))
 	t.Cleanup(srv.Close)
 	c, err := admin.NewHTTP(srv.URL, time.Second)
@@ -308,10 +310,10 @@ func (f fixedConfigs) ClusterConfigs(context.Context) ([]admin.ClusterConfig, er
 }
 
 func TestYAMLRenderErrorIsReportedPerCluster(t *testing.T) {
-	real := envoyServer(t, map[string]string{
+	client := envoyServer(t, map[string]string{
 		"/clusters": `{"cluster_statuses":[{"name":"bad"},{"name":"fine"}]}`,
 	})
-	snap, err := Fetch(context.Background(), fixedConfigs{Client: real, cfgs: []admin.ClusterConfig{
+	snap, err := Fetch(context.Background(), fixedConfigs{Client: client, cfgs: []admin.ClusterConfig{
 		{Name: "bad", Type: "EDS", JSON: []byte("{not json")},
 		{Name: "fine", Type: "EDS", JSON: []byte(`{"name":"fine"}`)},
 	}})

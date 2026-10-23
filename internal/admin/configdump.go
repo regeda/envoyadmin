@@ -3,7 +3,6 @@ package admin
 import (
 	"encoding/json"
 	"strings"
-	"time"
 )
 
 const (
@@ -33,17 +32,52 @@ type clustersDump struct {
 // arrays; that shape is still accepted, picking the list named by static.
 // Anything unrecognised or malformed is skipped rather than failing the fetch.
 func decodeClusterConfigs(body []byte, static bool) ([]ClusterConfig, error) {
+	var out []ClusterConfig
+	err := walkConfigs(body, func(raw json.RawMessage, typ string) {
+		out = append(out, clusterElements(raw, typ, static)...)
+	})
+	return out, err
+}
+
+// clusterElements decodes one configs[] element into zero or more clusters.
+func clusterElements(raw json.RawMessage, typ string, static bool) []ClusterConfig {
+	var entries []entry
+	isStatic := static
+	switch {
+	case strings.HasSuffix(typ, typeDynamicCluster), strings.HasSuffix(typ, typeStaticCluster):
+		var e entry
+		if json.Unmarshal(raw, &e) != nil {
+			return nil
+		}
+		entries = []entry{e}
+		isStatic = strings.HasSuffix(typ, typeStaticCluster)
+	case strings.HasSuffix(typ, typeClustersDump):
+		var cd clustersDump
+		if json.Unmarshal(raw, &cd) != nil {
+			return nil
+		}
+		entries = cd.Dynamic
+		if static {
+			entries = cd.Static
+		}
+	}
+	var out []ClusterConfig
+	for _, e := range entries {
+		if cc, ok := clusterConfig(e, isStatic); ok {
+			out = append(out, cc)
+		}
+	}
+	return out
+}
+
+// walkConfigs calls fn for each element of the dump's configs[] that carries a
+// readable @type; the rest are skipped.
+func walkConfigs(body []byte, fn func(raw json.RawMessage, typ string)) error {
 	var dump struct {
 		Configs []json.RawMessage `json:"configs"`
 	}
 	if err := json.Unmarshal(body, &dump); err != nil {
-		return nil, err
-	}
-	var out []ClusterConfig
-	add := func(e entry, isStatic bool) {
-		if cc, ok := clusterConfig(e, isStatic); ok {
-			out = append(out, cc)
-		}
+		return err
 	}
 	for _, raw := range dump.Configs {
 		var obj map[string]json.RawMessage
@@ -54,27 +88,9 @@ func decodeClusterConfigs(body []byte, static bool) ([]ClusterConfig, error) {
 		if json.Unmarshal(obj["@type"], &typ) != nil {
 			continue
 		}
-		switch {
-		case strings.HasSuffix(typ, typeDynamicCluster), strings.HasSuffix(typ, typeStaticCluster):
-			var e entry
-			if json.Unmarshal(raw, &e) == nil {
-				add(e, strings.HasSuffix(typ, typeStaticCluster))
-			}
-		case strings.HasSuffix(typ, typeClustersDump):
-			var cd clustersDump
-			if json.Unmarshal(raw, &cd) != nil {
-				continue
-			}
-			entries := cd.Dynamic
-			if static {
-				entries = cd.Static
-			}
-			for _, e := range entries {
-				add(e, static)
-			}
-		}
+		fn(raw, typ)
 	}
-	return out, nil
+	return nil
 }
 
 func clusterConfig(e entry, static bool) (ClusterConfig, bool) {
@@ -95,9 +111,8 @@ func clusterConfig(e entry, static bool) (ClusterConfig, bool) {
 	case typ == "":
 		typ = "STATIC" // proto3 default, omitted by Envoy
 	}
-	updated, _ := time.Parse(time.RFC3339Nano, e.LastUpdated)
 	return ClusterConfig{
 		Name: cl.Name, Type: typ, VersionInfo: e.VersionInfo,
-		LastUpdated: updated, Static: static, JSON: e.Cluster,
+		LastUpdated: parseTime(e.LastUpdated), Static: static, JSON: e.Cluster,
 	}, true
 }

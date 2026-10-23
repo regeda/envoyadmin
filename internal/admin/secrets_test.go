@@ -34,11 +34,11 @@ func serveSecrets(t *testing.T, active, warming, static string) *HTTP {
 	return newClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Query().Get("resource") {
 		case "dynamic_active_secrets":
-			_, _ = w.Write([]byte(active))
+			writeBody(t, w, active)
 		case "dynamic_warming_secrets":
-			_, _ = w.Write([]byte(warming))
+			writeBody(t, w, warming)
 		case "static_secrets":
-			_, _ = w.Write([]byte(static))
+			writeBody(t, w, static)
 		default:
 			http.Error(w, "bad resource", http.StatusBadRequest)
 		}

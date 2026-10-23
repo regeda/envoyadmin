@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
-
 	"github.com/regeda/envoyadmin/internal/snapshot"
 )
 

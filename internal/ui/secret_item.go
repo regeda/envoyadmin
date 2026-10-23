@@ -7,15 +7,14 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-
 	"github.com/regeda/envoyadmin/internal/snapshot"
 )
 
 const secretVersionW = 7
 
 type secretItem struct {
-	s   snapshot.Secret
 	now time.Time
+	s   snapshot.Secret
 }
 
 func secretItems(ss []snapshot.Secret, now time.Time) []resourceItem {
