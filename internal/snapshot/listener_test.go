@@ -567,3 +567,50 @@ func TestFilterTypeIsTheShortTypedConfigMessage(t *testing.T) {
 		t.Fatalf("HTTPFilters = %+v, want %+v", c.HTTPFilters, want)
 	}
 }
+
+func TestParseChainRouteRefs(t *testing.T) {
+	hcm := func(extra string) string {
+		return `[{"name":"hcm","typed_config":{"@type":"` + hcmType + `",` + extra + `}}]`
+	}
+	if c := chainOf(t, hcm(`"rds":{"route_config_name":"r1"}`)); c.Routes == nil || c.Routes.Name != "r1" || len(c.Routes.Inline) != 0 {
+		t.Fatalf("rds ref = %+v", c.Routes)
+	}
+	if c := chainOf(t, hcm(`"route_config":{"name":"in","virtual_hosts":[]}`)); c.Routes == nil || len(c.Routes.Inline) == 0 || c.Routes.Name != "" {
+		t.Fatalf("inline ref = %+v", c.Routes)
+	}
+	if c := chainOf(t, hcm(`"stat_prefix":"x"`)); c.Routes != nil {
+		t.Fatalf("HCM without routes: %+v", c.Routes)
+	}
+	tcp := chainOf(t, `[{"name":"tcp","typed_config":{"@type":"type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy"}}]`)
+	if tcp.Routes != nil {
+		t.Fatalf("tcp_proxy Routes = %+v", tcp.Routes)
+	}
+	if (Listener{Chains: []FilterChain{tcp}}).HasHTTP() {
+		t.Fatal("tcp_proxy-only listener must not HasHTTP")
+	}
+
+	_, chains := parseListener(raw(`{"filter_chains":[
+	  {"filters":` + hcm(`"rds":{"route_config_name":"r1"}`) + `},
+	  {"filters":` + hcm(`"rds":{"route_config_name":"r1"}`) + `}]}`))
+	l := Listener{Chains: chains}
+	if refs := l.RouteRefs(); len(refs) != 1 || refs[0].Name != "r1" {
+		t.Fatalf("RouteRefs = %+v, want r1 once", refs)
+	}
+	if !l.HasHTTP() {
+		t.Fatal("HasHTTP = false")
+	}
+	if !(Listener{Chains: []FilterChain{chainOf(t, hcm(`"stat_prefix":"x"`))}}).HasHTTP() {
+		t.Fatal("HCM without routes still HasHTTP")
+	}
+	if l.HasScopedRoutes() {
+		t.Fatal("an RDS listener HasScopedRoutes")
+	}
+
+	scoped := chainOf(t, hcm(`"scoped_routes":{"name":"s","scope_key_builder":{}}`))
+	if scoped.Routes != nil {
+		t.Fatalf("scoped Routes = %+v", scoped.Routes)
+	}
+	if sl := (Listener{Chains: []FilterChain{tcp, scoped}}); !sl.HasScopedRoutes() || !sl.HasHTTP() || len(sl.RouteRefs()) != 0 {
+		t.Fatalf("scoped listener: scoped=%v http=%v refs=%+v", sl.HasScopedRoutes(), sl.HasHTTP(), sl.RouteRefs())
+	}
+}

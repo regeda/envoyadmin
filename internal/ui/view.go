@@ -30,6 +30,7 @@ type resource struct {
 	summary     func(snapshot.Snapshot) string
 	notice      func(snapshot.Snapshot) string
 	warn        func(snapshot.Snapshot) bool
+	hint        string // the list's idle first row; empty means the default
 	emptyList   string
 	emptyDetail string
 }
@@ -49,6 +50,7 @@ var resources = [kindCount]resource{
 	},
 	kindListeners: {
 		label: "Listeners",
+		hint:  "/ to filter or : to routes",
 		items: func(s snapshot.Snapshot) []resourceItem { return listenerItems(s.Listeners) },
 		count: func(s snapshot.Snapshot) int { return len(s.Listeners) },
 		summary: func(s snapshot.Snapshot) string {
@@ -90,6 +92,9 @@ func newView(r resource, color bool) view {
 	v := view{list: newListPane(), detail: newDetailPane(color)}
 	v.list.SetWaiting(true)
 	v.list.SetEmptyText(r.emptyList)
+	if r.hint != "" {
+		v.list.SetHint(r.hint)
+	}
 	v.detail.SetEmptyText(r.emptyDetail)
 	return v
 }

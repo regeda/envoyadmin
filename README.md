@@ -20,6 +20,24 @@ Three tabs, each with a list on the left and details on the right. `Tab` switche
 
 ![Listeners](/screenshots/listeners.png)
 
+#### Route search
+Press `:` on a listener, type a command and press `Enter`:
+
+- `:name <text>` lists the routes whose name contains `<text>`.
+- `:all` lists every route of the listener.
+- `:curl [-H 'Name: value']... [-X method] <url or /path>` shows which routes a request would hit.
+
+```
+:curl https://api.example.com/v1/orders?id=7
+:curl -H 'Host: a.example.com' https://x/v1/logon
+:curl -X POST -H 'x-tenant: acme' http://api.example.com/v1/orders
+:curl /v1/logon
+```
+
+A path without a host (the last example) searches any host and marks no winner. Each result shows its status (`winner`, `match` or `not evaluated`), `Tab` switches the detail between the route and its config, and `Esc` closes the search.
+
+![Routes](/screenshots/routes.png)
+
 ### Secrets
 - **Every loaded secret** with its state (`●` active or static, `◐` warming, `✗` certificate expired), name and `version_info`. Warming and expired ones sort first.
 - **Overview** (`o`): kind (`tls_certificate`, `validation_context`, ...), version, last update, the certificate's serial, SANs and expiry, and the clusters and listeners that use the secret.

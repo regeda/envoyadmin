@@ -37,7 +37,12 @@ type FilterChain struct {
 	// HTTPFilters are the http_filters[] of the first HttpConnectionManager
 	// filter in the chain.
 	HTTPFilters []Filter
-	TLS         bool
+	// Routes is the route source of the first HttpConnectionManager: nil when
+	// the chain has none or it names no route config.
+	Routes *RouteRef
+	TLS    bool
+	hcm    bool // the chain has an HttpConnectionManager
+	scoped bool // its HttpConnectionManager uses scoped_routes
 }
 
 type Listener struct {
@@ -210,6 +215,32 @@ func parseHTTPFilters(typed json.RawMessage) (filters []Filter, isHCM bool) {
 	return filters, true
 }
 
+// parseRouteRef returns the route source of an HttpConnectionManager
+// typed_config: rds.route_config_name, else an inline route_config. Nil for
+// other types or when neither is set (the exact @type decides, as above).
+// scoped reports an HttpConnectionManager using scoped_routes, which has no
+// route source this tool reads.
+func parseRouteRef(typed json.RawMessage) (ref *RouteRef, scoped bool) {
+	var tc struct {
+		Type string `json:"@type"`
+		RDS  struct {
+			Name string `json:"route_config_name"`
+		} `json:"rds"`
+		Inline json.RawMessage `json:"route_config"`
+		Scoped json.RawMessage `json:"scoped_routes"`
+	}
+	_ = json.Unmarshal(typed, &tc)
+	switch {
+	case tc.Type != hcmTypeURL:
+		return nil, false
+	case tc.RDS.Name != "":
+		return &RouteRef{Name: tc.RDS.Name}, false
+	case len(tc.Inline) > 0 && string(tc.Inline) != "null":
+		return &RouteRef{Inline: tc.Inline}, false
+	}
+	return nil, len(tc.Scoped) > 0 && string(tc.Scoped) != "null"
+}
+
 func parseChain(raw json.RawMessage, label string) FilterChain {
 	var c struct {
 		Name    string                     `json:"name"`
@@ -232,6 +263,10 @@ func parseChain(raw json.RawMessage, label string) FilterChain {
 		fc.Filters = append(fc.Filters, Filter{Name: f.Name, Type: shortType(f.TypedConfig)})
 		if !seenHCM { // the first HttpConnectionManager is authoritative
 			fc.HTTPFilters, seenHCM = parseHTTPFilters(f.TypedConfig)
+			if seenHCM {
+				fc.hcm = true
+				fc.Routes, fc.scoped = parseRouteRef(f.TypedConfig)
+			}
 		}
 	}
 	return fc

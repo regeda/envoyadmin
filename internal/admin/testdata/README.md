@@ -102,3 +102,16 @@ name. A file-based cert would show its file path instead. The body is
   PEM is included, so the decoder still drops the body.
 
 `real-certs.json` is kept as evidence of why `/certs` is not used: it names an SDS certificate `<inline>`, so it cannot be joined to a secret by name.
+
+## Route config fixture
+
+- real-routes-dynamic.json  GET /config_dump?resource=dynamic_route_configs&name_regex=<name>
+
+Taken from a live internal proxy (one route config, one virtual host `*`), then sanitised:
+the repo is public, so every hostname, `:authority` pattern, cluster name, route name,
+path, API product id, policy value, issuer and token was replaced with an invented value
+(example.com hosts, `Demo*` products). The structure is as Envoy emitted it
+(`DynamicRouteConfig`, `metadata.filter_metadata`, `typed_per_filter_config`, a
+`direct_response` route). The live dump had no `:authority` header matcher, so one route was
+duplicated by hand and the two copies given different `:authority` `safe_regex` headers on
+the same exact path; that pair is synthetic.

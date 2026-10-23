@@ -2,7 +2,7 @@
 ██▄ █ ▀█ ▀▄▀ █▄█  █  █▀█ █▄▀ █ ▀ █ █ █ ▀█                                                  Envoy 1.31.0 · updated 2s ago
 
   Clusters (6)  [Listeners (7)]  Secrets (!) 
-/ to filter                         │  bad-update  ·  Overview | Config                                                 
+/ to filter or : to routes          │  bad-update  ·  Overview | Config                                                 
 >✗ bad-update           0.0.0.0:9443│Bind address  0.0.0.0:9443                                                         
  ◐ legacy-9090          0.0.0.0:9090│State         error                                                                
  ◐ orders-egress       10.0.2.1:5432│Version       prev                                                                 
@@ -27,4 +27,4 @@
                                     │                                                                                   
                                     │                                                                                   
                                     │                                                                                   
- 7 listeners · 3 not active ? help · q quit · tab switch · enter details · / filter · c config · o overview · r refresh 
+ 7 listeners · 3 not active   ? help · q quit · tab switch · enter details · / filter · : routes · c config · r refresh 

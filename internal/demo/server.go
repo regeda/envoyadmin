@@ -64,6 +64,7 @@ func (s *Server) Update(fn func(*Scenario)) {
 		l.Secrets = append([]string(nil), l.Secrets...)
 		cp.Listeners[i] = l
 	}
+	cp.RouteConfigs = append([]RouteConfig(nil), s.sc.RouteConfigs...)
 	cp.Secrets = make([]Secret, len(s.sc.Secrets))
 	for i, sec := range s.sc.Secrets {
 		if sec.Cert != nil {
@@ -133,7 +134,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		_, _ = w.Write(sc.ClustersJSON())
 	case "/config_dump":
-		b, ok := sc.ConfigDumpJSON(r.URL.Query().Get("resource"))
+		q := r.URL.Query()
+		var b []byte
+		var ok bool
+		if re := q.Get("name_regex"); re != "" {
+			b, ok = sc.RouteConfigsJSON(q.Get("resource"), re)
+		} else {
+			b, ok = sc.ConfigDumpJSON(q.Get("resource"))
+		}
 		if !ok {
 			http.Error(w, "unsupported resource", http.StatusBadRequest)
 			return

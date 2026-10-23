@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -40,6 +41,9 @@ type Chain struct {
 	// http_connection_manager filter's typed_config (ignored for other filters).
 	HTTPFilters []string
 	TLS         bool
+	// RouteConfig is emitted as rds.route_config_name in the
+	// http_connection_manager's typed config (ignored for other filters).
+	RouteConfig string
 }
 
 type Listener struct {
@@ -70,12 +74,21 @@ type Secret struct {
 	Cert                       *DemoCert
 }
 
+// RouteConfig is one dynamic route configuration; VirtualHosts are emitted as
+// the route_config's virtual_hosts.
+type RouteConfig struct {
+	Name, Version string
+	VirtualHosts  []map[string]any
+}
+
 type Scenario struct {
 	Envoy     string
 	Updated   time.Time
 	Clusters  []Cluster
 	Listeners []Listener
 	Secrets   []Secret
+	// RouteConfigs are served as dynamic_route_configs; static_route_configs is always empty.
+	RouteConfigs []RouteConfig
 }
 
 var epoch = time.Date(2026, 10, 14, 10, 0, 0, 0, time.UTC)
@@ -132,6 +145,9 @@ func metric(name string, v uint64, typ string) map[string]any {
 // element per cluster, typed ClustersConfigDump.DynamicCluster or .StaticCluster.
 func (s Scenario) ConfigDumpJSON(resource string) ([]byte, bool) {
 	if b, ok := s.SecretsJSON(resource); ok {
+		return b, true
+	}
+	if b, ok := s.RouteConfigsJSON(resource, ""); ok {
 		return b, true
 	}
 	switch resource {
@@ -199,11 +215,18 @@ func (c Chain) json() map[string]any {
 					"typed_config": map[string]any{"@type": "type.googleapis.com/" + httpFilterProto(h)},
 				})
 			}
-			nf["typed_config"] = map[string]any{
+			tc := map[string]any{
 				"@type":        "type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager",
 				"stat_prefix":  "demo",
 				"http_filters": httpFilters,
 			}
+			if c.RouteConfig != "" {
+				tc["rds"] = map[string]any{
+					"config_source":     map[string]any{"ads": map[string]any{}},
+					"route_config_name": c.RouteConfig,
+				}
+			}
+			nf["typed_config"] = tc
 		}
 		filters = append(filters, nf)
 	}
@@ -322,6 +345,46 @@ func (s Scenario) listenerElements(static bool) []any {
 	return out
 }
 
+// RouteConfigsJSON returns the dump for ?resource=dynamic_route_configs or
+// static_route_configs, one configs[] element per route config. A non-empty
+// nameRegex keeps only the configs whose whole name it matches, like Envoy's
+// name_regex; an invalid regex reports false.
+func (s Scenario) RouteConfigsJSON(resource, nameRegex string) ([]byte, bool) {
+	if resource != "dynamic_route_configs" && resource != "static_route_configs" {
+		return nil, false
+	}
+	var re *regexp.Regexp
+	if nameRegex != "" {
+		var err error
+		if re, err = regexp.Compile("^(?:" + nameRegex + ")$"); err != nil {
+			return nil, false
+		}
+	}
+	configs := []any{}
+	if resource == "dynamic_route_configs" {
+		for _, rc := range s.RouteConfigs {
+			if re != nil && !re.MatchString(rc.Name) {
+				continue
+			}
+			vhosts := rc.VirtualHosts
+			if vhosts == nil {
+				vhosts = []map[string]any{}
+			}
+			configs = append(configs, map[string]any{
+				"@type":        "type.googleapis.com/envoy.admin.v3.RoutesConfigDump.DynamicRouteConfig",
+				"version_info": rc.Version,
+				"route_config": map[string]any{
+					"@type":         "type.googleapis.com/envoy.config.route.v3.RouteConfiguration",
+					"name":          rc.Name,
+					"virtual_hosts": vhosts,
+				},
+				"last_updated": s.Updated.Format(time.RFC3339Nano),
+			})
+		}
+	}
+	return mustJSON(map[string]any{"configs": configs}), true
+}
+
 func (s Scenario) ServerInfoJSON() []byte {
 	return mustJSON(map[string]any{"version": s.Envoy, "state": "LIVE"})
 }
@@ -366,11 +429,12 @@ func degradedListeners() []Listener {
 		{Name: "virtualInbound", Address: "0.0.0.0:15006", Version: "7", State: "active",
 			Chains: []Chain{
 				{Match: map[string]any{"destination_port": 8080, "transport_protocol": "tls", "application_protocols": []string{"h2"}},
-					Filters: hcm, HTTPFilters: sidecarHTTP(), TLS: true},
+					Filters: hcm, HTTPFilters: sidecarHTTP(), TLS: true, RouteConfig: "inbound-routes"},
 				{Name: "by-sni", Match: map[string]any{"server_names": []string{"a.example.com", "b.example.com"}}, Filters: hcm, HTTPFilters: sidecarHTTP()},
 			},
 			Default: &Chain{Filters: tcp}},
-		{Name: "0.0.0.0_8080", Address: "0.0.0.0:8080", Version: "7", State: "active", Chains: []Chain{{Filters: hcm, HTTPFilters: routerHTTP()}},
+		{Name: "0.0.0.0_8080", Address: "0.0.0.0:8080", Version: "7", State: "active",
+			Chains:  []Chain{{Filters: hcm, HTTPFilters: routerHTTP(), RouteConfig: "public-api"}},
 			Secrets: []string{"server-cert"}},
 		{Name: "orders-egress", Address: "10.0.2.1:5432", Version: "8", State: "warming", ServingOld: true, Chains: []Chain{{Filters: tcp}}},
 		{Name: "legacy-9090", Address: "0.0.0.0:9090", Version: "6", State: "draining", Chains: []Chain{{Filters: tcp}}},
@@ -379,6 +443,48 @@ func degradedListeners() []Listener {
 			Chains: []Chain{{Filters: tcp}}},
 		{Name: "admin-static", Address: "127.0.0.1:15000", Static: true, Chains: []Chain{{Filters: tcp}}},
 		{Name: "uds-agent", Address: "unix:/var/run/agent.sock", Static: true, Chains: []Chain{{Filters: tcp}}},
+	}
+}
+
+func routeTo(name, cluster string, match map[string]any) map[string]any {
+	r := map[string]any{"match": match, "route": map[string]any{"cluster": cluster}}
+	if name != "" {
+		r["name"] = name
+	}
+	return r
+}
+
+func authority(regex string) map[string]any {
+	return map[string]any{"name": ":authority", "string_match": map[string]any{"safe_regex": map[string]any{"regex": regex}}}
+}
+
+// demoRouteConfigs gives every route search status something to show: two
+// routes share one exact path and differ by an :authority regex, a few routes
+// are named, and one route has a runtime_fraction match (not evaluated).
+func demoRouteConfigs() []RouteConfig {
+	return []RouteConfig{
+		{Name: "public-api", Version: "21", VirtualHosts: []map[string]any{
+			{"name": "api", "domains": []string{"api.example.com", "*.example.com"}, "routes": []any{
+				routeTo("logon-a", "api-gateway", map[string]any{"path": "/v1/logon", "headers": []any{authority(`a\..*`)}}),
+				routeTo("logon-b", "api-gateway", map[string]any{"path": "/v1/logon", "headers": []any{authority(`b\..*`)}}),
+				routeTo("orders", "api-gateway", map[string]any{"prefix": "/v1/orders"}),
+				routeTo("canary", "api-gateway", map[string]any{"prefix": "/v1/", "runtime_fraction": map[string]any{
+					"default_value": map[string]any{"numerator": 10, "denominator": "HUNDRED"}}}),
+				routeTo("", "api-gateway", map[string]any{"prefix": "/v1/"}),
+				routeTo("api-default", "api-gateway", map[string]any{"prefix": "/"}),
+			}},
+			{"name": "fallback", "domains": []string{"*"}, "routes": []any{
+				routeTo("search", "search", map[string]any{"prefix": "/search"}),
+				routeTo("fallback-default", "api-gateway", map[string]any{"prefix": "/"}),
+			}},
+		}},
+		{Name: "inbound-routes", Version: "7", VirtualHosts: []map[string]any{
+			{"name": "inbound", "domains": []string{"a.example.com", "b.example.com"}, "routes": []any{
+				routeTo("health", "local-agent", map[string]any{"path": "/healthz"}),
+				routeTo("logon-inbound", "api-gateway", map[string]any{"prefix": "/v1/logon"}),
+				routeTo("inbound-default", "api-gateway", map[string]any{"prefix": "/"}),
+			}},
+		}},
 	}
 }
 
@@ -509,6 +615,7 @@ func Degraded() Scenario {
 	)
 	sc.Listeners = degradedListeners()
 	sc.Secrets = demoSecrets()
+	sc.RouteConfigs = demoRouteConfigs()
 	return sc
 }
 

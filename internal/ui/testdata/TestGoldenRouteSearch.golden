@@ -1,0 +1,30 @@
+█▀▀ █▄ █ █ █ █▀█ █ █ ▄▀█ █▀▄ █▀▄▀█ █ █▄ █                                                ● connected  http://envoy:15000
+██▄ █ ▀█ ▀▄▀ █▄█  █  █▀█ █▄▀ █ ▀ █ █ █ ▀█                                                                 updated 0s ago
+
+  Clusters (0)  [Listeners (2)]  Secrets (0) 
+a-edge :curl http://h/logon/x                                                                                           
+3 routes                            │  logon  ·  Route | Config                                                         
+>★  logon         edge-routes / edge│                                                                                   
+ ·  logon-any     edge-routes / edge│1│ match:                                                                          
+ ·  catch-all     edge-routes / edge│2│   prefix: /logon                                                                
+                                    │3│ name: logon                                                                     
+                                    │4│ route:                                                                          
+                                    │5│   cluster: auth                                                                 
+                                    │                                                                                   
+                                    │                                                                                   
+                                    │                                                                                   
+                                    │                                                                                   
+                                    │                                                                                   
+                                    │                                                                                   
+                                    │                                                                                   
+                                    │                                                                                   
+                                    │                                                                                   
+                                    │                                                                                   
+                                    │                                                                                   
+                                    │                                                                                   
+                                    │                                                                                   
+                                    │                                                                                   
+                                    │                                                                                   
+                                    │                                                                                   
+                                    │                                                                                   
+ routes of a-edge                              enter run · esc close · ↑↓ move · tab overview/config · PgUp/PgDn scroll 

@@ -24,6 +24,7 @@ type listPane struct {
 	unfocused     bool // zero value = focused
 	waiting       bool
 	emptyText     string
+	hint          string // the first row when idle
 	notice        string
 	input         textinput.Model
 	width, height int
@@ -34,7 +35,7 @@ func newListPane() listPane {
 	ti := textinput.New()
 	ti.Prompt = "/ "
 	ti.CharLimit = 100
-	return listPane{input: ti, emptyText: "no items"}
+	return listPane{input: ti, emptyText: "no items", hint: "/ to filter"}
 }
 
 type itemTexts []resourceItem
@@ -51,6 +52,7 @@ func (l *listPane) SetSize(w, h int) {
 func (l *listPane) SetWaiting(v bool)     { l.waiting = v }
 func (l *listPane) SetEmptyText(s string) { l.emptyText = s }
 func (l *listPane) SetNotice(s string)    { l.notice = s }
+func (l *listPane) SetHint(s string)      { l.hint = s }
 
 // SetFocused tells the pane whether it owns the keyboard; an unfocused pane
 // draws its cursor as › instead of >.
@@ -182,7 +184,7 @@ func (l listPane) filterLine() string {
 	if l.query != "" {
 		return dimStyle.Render("/ " + l.query)
 	}
-	return dimStyle.Render("/ to filter")
+	return dimStyle.Render(trunc(l.hint, max(l.width, 1)))
 }
 
 func (l listPane) row(i int) string {
