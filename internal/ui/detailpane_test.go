@@ -68,14 +68,17 @@ func TestEndpointsTabIsDefault(t *testing.T) {
 	}
 }
 
-func TestConfigTabShowsVersionAndYAML(t *testing.T) {
+func TestConfigTabShowsYAMLWithoutVersion(t *testing.T) {
 	d := newDetail(false)
 	d.SetItem(clusterItem{configCluster()}, true)
 	d.SetTab(tabConfig)
 	v := d.View()
-	for _, want := range []string{"version_info: 42", "last_updated: 2026-10-14", "connect_timeout: 5s"} {
-		if !strings.Contains(v, want) {
-			t.Fatalf("missing %q in:\n%s", want, v)
+	if !strings.Contains(v, "connect_timeout: 5s") {
+		t.Fatalf("missing YAML in:\n%s", v)
+	}
+	for _, bad := range []string{"version_info", "last_updated"} {
+		if strings.Contains(v, bad) {
+			t.Fatalf("Config must not show %q:\n%s", bad, v)
 		}
 	}
 	if n := len(strings.Split(v, "\n")); n != 14 {
@@ -89,7 +92,7 @@ func TestConfigTabStaticAndError(t *testing.T) {
 	d := newDetail(false)
 	d.SetItem(clusterItem{c}, true)
 	d.SetTab(tabConfig)
-	if !strings.Contains(d.View(), "static") || strings.Contains(d.View(), "version_info") {
+	if strings.Contains(d.View(), "static") || strings.Contains(d.View(), "version_info") {
 		t.Fatal(d.View())
 	}
 
@@ -289,18 +292,18 @@ func TestLongLineIsOneRowClippedAtBoundary(t *testing.T) {
 	if len(rows) != 10 {
 		t.Fatalf("rows %d", len(rows))
 	}
-	// row 0 tab line, row 1 header, row 2 the long line, row 3 the next line
-	if got := rowIndex(rows, "key: "); got != 2 {
+	// row 0 tab line, row 1 the long line, row 2 the next line
+	if got := rowIndex(rows, "key: "); got != 1 {
 		t.Fatalf("key row %d\n%s", got, strings.Join(rows, "\n"))
 	}
-	if got := rowIndex(rows, "itema:"); got != 3 {
+	if got := rowIndex(rows, "itema:"); got != 2 {
 		t.Fatalf("itema row %d, long line wrapped?\n%s", got, strings.Join(rows, "\n"))
 	}
-	if w := lipgloss.Width(rows[2]); w != 30 {
+	if w := lipgloss.Width(rows[1]); w != 30 {
 		t.Fatalf("clipped row width %d, want 30", w)
 	}
 	gutter := lipgloss.Width(yamlGutter(1, c.Config.YAML)) // "<n>│ " in front of every line
-	if n := strings.Count(rows[2], "v"); n != 30-gutter-len("key: ") {
+	if n := strings.Count(rows[1], "v"); n != 30-gutter-len("key: ") {
 		t.Fatalf("v count %d: tail of long value leaked (gutter %d)", n, gutter)
 	}
 	// every later line is reachable by scrolling
@@ -320,7 +323,7 @@ func TestLongLineColorIsCutCleanly(t *testing.T) {
 	d.SetItem(clusterItem{c}, true)
 	d.SetTab(tabConfig)
 	rows := rowsOf(d.View())
-	if got := rowIndex(rows, "itema:"); got != 3 {
+	if got := rowIndex(rows, "itema:"); got != 2 {
 		t.Fatalf("itema row %d\n%s", got, strings.Join(rows, "\n"))
 	}
 	plain := yamlGutter(1, c.Config.YAML) + "key: " + strings.Repeat("v", 200)
@@ -332,16 +335,16 @@ func TestLongLineColorIsCutCleanly(t *testing.T) {
 			t.Fatalf("row %d broken escape: %q", i, r)
 		}
 	}
-	if !strings.Contains(rows[2], "\x1b[") {
-		t.Fatalf("expected highlighted row: %q", rows[2])
+	if !strings.Contains(rows[1], "\x1b[") {
+		t.Fatalf("expected highlighted row: %q", rows[1])
 	}
-	got := strings.TrimRight(ansi.Strip(rows[2]), " ")
+	got := strings.TrimRight(ansi.Strip(rows[1]), " ")
 	if want := ansi.Truncate(plain, 30, ""); got != want {
-		t.Fatalf("row 2 = %q, want %q", got, want)
+		t.Fatalf("row 1 = %q, want %q", got, want)
 	}
 }
 
-func TestLongNameAndHeaderStayOneRow(t *testing.T) {
+func TestLongNameStaysOneRow(t *testing.T) {
 	d := newDetailPane(false)
 	d.SetSize(30, 10)
 	c := configCluster()
@@ -353,11 +356,8 @@ func TestLongNameAndHeaderStayOneRow(t *testing.T) {
 	if len(rows) != 10 {
 		t.Fatalf("rows %d", len(rows))
 	}
-	if got := rowIndex(rows, "name: api"); got != 2 {
-		t.Fatalf("yaml starts at row %d, tab/header wrapped?\n%s", got, strings.Join(rows, "\n"))
-	}
-	if !strings.HasPrefix(ansi.Strip(rows[1]), "version_info: 2026") {
-		t.Fatalf("header row: %q", rows[1])
+	if got := rowIndex(rows, "name: api"); got != 1 {
+		t.Fatalf("yaml starts at row %d, tab wrapped?\n%s", got, strings.Join(rows, "\n"))
 	}
 	d.SetTab(tabOverview)
 	rows = rowsOf(d.View())
@@ -432,14 +432,14 @@ func numberedConfig(t *testing.T, yaml string, h int) (detailPane, []string) {
 func TestConfigLinesAreNumbered(t *testing.T) {
 	yaml := "name: api\ntype: EDS\nconnect_timeout: 5s\n"
 	_, rows := numberedConfig(t, yaml, 8)
-	// row 0 tab line, row 1 header, rows 2.. the YAML
+	// row 0 tab line, rows 1.. the YAML
 	want := []string{"1│ name: api", "2│ type: EDS", "3│ connect_timeout: 5s"}
 	for i, w := range want {
-		if got := strings.TrimRight(rows[2+i], " "); got != w {
-			t.Fatalf("row %d = %q, want %q", 2+i, got, w)
+		if got := strings.TrimRight(rows[1+i], " "); got != w {
+			t.Fatalf("row %d = %q, want %q", 1+i, got, w)
 		}
 	}
-	if strings.Contains(rows[5], "│") {
+	if strings.Contains(rows[4], "│") {
 		t.Fatalf("no number past the last YAML line: %q", rows[5])
 	}
 }
@@ -450,12 +450,12 @@ func TestConfigLineNumbersAreRightAlignedAndStartWithOneAfterScrolling(t *testin
 		fmt.Fprintf(&b, "k%d: v\n", i)
 	}
 	d, rows := numberedConfig(t, b.String(), 12)
-	if got := strings.TrimRight(rows[2], " "); got != "  1│ k1: v" {
+	if got := strings.TrimRight(rows[1], " "); got != "  1│ k1: v" {
 		t.Fatalf("first row %q: numbers must be right-aligned to the widest (3 digits)", got)
 	}
 	d.HandleKey(key("pgdown"))
 	rows = rowsOf(d.View())
-	first := strings.TrimRight(rows[2], " ")
+	first := strings.TrimRight(rows[1], " ")
 	n := d.vp.YOffset
 	if n == 0 {
 		t.Fatal("pgdown should have scrolled")
@@ -547,12 +547,12 @@ func TestConfigNotConvertedWhileOverviewShows(t *testing.T) {
 		t.Fatalf("opening Config must render once (rendered=%v highlights=%d)", l.Config.Rendered(), d.highlights)
 	}
 	v := ansi.Strip(d.View())
-	if !strings.Contains(v, "1│ name: a") || !strings.Contains(v, "2│ port: 1") || !strings.Contains(v, "version_info: v9") {
-		t.Fatalf("opened Config must show numbered YAML and the header:\n%s", v)
+	if !strings.Contains(v, "1│ name: a") || !strings.Contains(v, "2│ port: 1") || strings.Contains(v, "version_info") {
+		t.Fatalf("opened Config must show numbered YAML and no header:\n%s", v)
 	}
 }
 
-func TestConfigHeaderShownWithoutRenderingYAML(t *testing.T) {
+func TestConfigShowsNewItemAfterTabSwitch(t *testing.T) {
 	d := newDetail(false)
 	l := jsonListener("a", `{"name":"a"}`)
 	d.SetItem(listenerItem{l}, true)
@@ -562,7 +562,7 @@ func TestConfigHeaderShownWithoutRenderingYAML(t *testing.T) {
 	l2.Config.VersionInfo = "v10"
 	d.SetItem(listenerItem{l2}, true)
 	d.SetTab(tabConfig)
-	if v := d.View(); !strings.Contains(v, "version_info: v10") || !strings.Contains(v, "name: b") {
+	if v := d.View(); strings.Contains(v, "version_info") || !strings.Contains(v, "name: b") {
 		t.Fatalf("\n%s", v)
 	}
 }

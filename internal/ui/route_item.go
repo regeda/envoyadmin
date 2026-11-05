@@ -80,6 +80,7 @@ func (it routeHitItem) lines() []string {
 	h := it.h
 	lines := []string{
 		prop("Route config", orDash(h.Config)),
+		prop("Version", orDash(h.Route.RDSVersion)),
 		prop("Virtual host", orDash(h.VirtualHost)),
 		prop("Domains", orDash(strings.Join(h.Domains, ", "))),
 		prop("Index", strconv.Itoa(h.Route.Index)),
