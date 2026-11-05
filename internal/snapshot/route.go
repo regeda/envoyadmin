@@ -74,7 +74,9 @@ type Route struct {
 	Name   string
 	JSON   []byte
 	Config ConfigInfo
-	Index  int
+	// RDSVersion is the version_info of the route config the route belongs to.
+	RDSVersion string
+	Index      int
 }
 
 // ParseRouteConfig reads a route_config object, best effort: malformed parts
@@ -106,7 +108,7 @@ func ParseRouteConfig(name, version string, inline bool, raw json.RawMessage) Ro
 			}
 			looseUnmarshal(r, &n)
 			out.Routes = append(out.Routes, Route{
-				Name: n.Name, Index: i, JSON: r, Config: NewConfigInfo(r),
+				Name: n.Name, Index: i, JSON: r, Config: NewConfigInfo(r), RDSVersion: version,
 				match: decodeRouteMatch(n.Match),
 			})
 		}

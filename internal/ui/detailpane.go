@@ -45,12 +45,12 @@ func newDetailPane(color bool) detailPane {
 
 func (d *detailPane) SetEmptyText(s string) { d.emptyText = s }
 
-// Layout: 1 tab line, then a body of height-1 rows. The Config body is 1 header
-// line plus the viewport.
+// Layout: 1 tab line, then a body of height-1 rows: the Config body is the
+// viewport.
 func (d *detailPane) SetSize(w, h int) {
 	d.width, d.height = w, h
 	d.vp.Width = max(w, 1)
-	d.vp.Height = max(h-2, 1)
+	d.vp.Height = max(h-1, 1)
 	d.applyContent() // re-clip to the new width; never re-runs chroma
 }
 
@@ -211,20 +211,6 @@ func (d detailPane) tabLine() string {
 		label(d.item.OverviewName(), d.tab == tabOverview) + " " + dimStyle.Render("|") + " " + label("Config", d.tab == tabConfig)
 }
 
-func (d detailPane) configHeader() string {
-	c := d.item.Config()
-	var parts []string
-	if c.Static {
-		parts = append(parts, "static (no xDS version)")
-	} else if c.VersionInfo != "" {
-		parts = append(parts, "version_info: "+c.VersionInfo)
-	}
-	if !c.LastUpdated.IsZero() {
-		parts = append(parts, "last_updated: "+c.LastUpdated.UTC().Format("2006-01-02 15:04:05Z"))
-	}
-	return dimStyle.Render(strings.Join(parts, "   "))
-}
-
 func (d detailPane) View() string {
 	w, h := max(d.width, 1), max(d.height, 1)
 	var body string
@@ -232,7 +218,7 @@ func (d detailPane) View() string {
 	case !d.has:
 		body = dimStyle.Render(d.emptyText)
 	case d.tab == tabConfig:
-		body = trunc(d.tabLine(), w) + "\n" + trunc(d.configHeader(), w) + "\n" + d.vp.View()
+		body = trunc(d.tabLine(), w) + "\n" + d.vp.View()
 	default:
 		body = trunc(d.tabLine(), w) + "\n" + d.item.Overview(d.width, d.height-1, d.scroll)
 	}
